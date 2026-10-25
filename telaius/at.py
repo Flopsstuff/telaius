@@ -8,7 +8,7 @@ import argparse
 import sys
 import time
 
-from telaius.modem import IF_AT, AtChannel, UsbPort, close_modem, open_modem
+from telaius.modem import IF_AT, AtChannel, close_modem, open_modem, open_port
 
 
 def main():
@@ -18,8 +18,8 @@ def main():
     a = ap.parse_args()
 
     dev = open_modem()
-    at = AtChannel(UsbPort(dev, IF_AT), echo=False)
     try:
+        at = AtChannel(open_port(dev, IF_AT), echo=False)
         at.poll(300)
         sys.stdout.write(at.buf)
         for cmd in a.cmds:

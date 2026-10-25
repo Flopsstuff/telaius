@@ -29,7 +29,7 @@ import usb.core
 import websockets
 
 from telaius.callstore import CALLS_DIR, call_dir, save_call
-from telaius.modem import IF_AT, IF_PCM, AtChannel, PcmAligner, UsbPort, close_modem, open_modem
+from telaius.modem import IF_AT, IF_PCM, AtChannel, PcmAligner, close_modem, open_modem, open_port
 from telaius.prompts import LANG_HINT, TOOLS, bot_name, build_instructions
 
 XAI_URL = "wss://api.x.ai/v1/realtime?model=grok-voice-latest"
@@ -221,8 +221,12 @@ async def call(spec, audio, max_seconds, out_root):
     number = spec["number"]
     out_dir = call_dir(spec.get("callee"), number, out_root)  # created only when the call is saved
     dev = open_modem()
-    at = AtChannel(UsbPort(dev, IF_AT))
-    pcm = UsbPort(dev, IF_PCM)
+    try:
+        at = AtChannel(open_port(dev, IF_AT))
+        pcm = open_port(dev, IF_PCM)
+    except BaseException:
+        close_modem(dev, [IF_AT, IF_PCM])
+        raise
     rate = RELAY_RATE if audio == "relay" else at.pcm_rate()
     frame_len = rate * 2 // 50  # 20 ms
     log(f"audio path: {audio}, PCM rate: {rate} Hz, output: {out_dir}")
@@ -249,7 +253,7 @@ async def call(spec, audio, max_seconds, out_root):
         while not stop.is_set():
             try:
                 chunk = pcm.read()
-            except usb.core.USBError as e:
+            except (OSError, usb.core.USBError) as e:
                 log(f"pcm read error: {e}")
                 time.sleep(0.05)
                 continue
@@ -267,7 +271,7 @@ async def call(spec, audio, max_seconds, out_root):
             tx_all.extend(frame)
             try:
                 pcm.write(frame, timeout_ms=200)
-            except usb.core.USBError:
+            except (OSError, usb.core.USBError):
                 pass
             t0 += 0.02
             delay = t0 - time.monotonic()

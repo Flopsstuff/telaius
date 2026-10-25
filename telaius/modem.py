@@ -1,12 +1,16 @@
-"""SIM7600 access over raw libusb.
+"""SIM7600 AT and PCM access through Linux tty devices or raw libusb.
 
 macOS has no serial driver for the SIM7600 composite device (1e0e:9001), so the vendor
 interfaces are claimed directly: if2 carries AT commands, if4 carries call audio as raw
-PCM (s16le mono, 8 or 16 kHz depending on AT+CPCMFRM) once AT+CPCMREG=1 is sent.
+PCM (s16le mono, 8 or 16 kHz depending on AT+CPCMFRM) once AT+CPCMREG=1 is sent. Linux
+normally keeps option attached and opens the stable /dev/serial/by-id links instead.
 """
 import array
 import glob
+import os
+import select
 import sys
+import termios
 import time
 
 import usb.backend.libusb1
@@ -16,6 +20,11 @@ import usb.util
 VID, PID = 0x1E0E, 0x9001
 IF_AT = 2
 IF_PCM = 4
+
+TTY_PATTERNS = {
+    IF_AT: "/dev/serial/by-id/*SimTech*-if02-port0",
+    IF_PCM: "/dev/serial/by-id/*SimTech*-if04-port0",
+}
 
 FINAL_RESULTS = ("OK", "ERROR", "NO CARRIER", "BUSY", "NO ANSWER")
 
@@ -33,14 +42,47 @@ def _backend():
     return None  # let pyusb search the default library path (Linux)
 
 
-def open_modem():
+def _transport():
+    forced = os.environ.get("TELAIUS_TRANSPORT", "").lower()
+    if forced and forced not in {"tty", "usb"}:
+        raise ValueError("TELAIUS_TRANSPORT must be tty or usb")
+    if forced:
+        return forced
+    return "tty" if all(glob.glob(pattern) for pattern in TTY_PATTERNS.values()) else "usb"
+
+
+def _tty_path(ifnum):
+    paths = sorted(glob.glob(TTY_PATTERNS[ifnum]))
+    if not paths:
+        raise FileNotFoundError(f"no SimTech tty for USB interface {ifnum} ({TTY_PATTERNS[ifnum]})")
+    return paths[0]
+
+
+class TtyModem:
+    """Kernel-backed SIM7600 interfaces selected by stable /dev/serial/by-id links."""
+
+    def __init__(self):
+        self.ports = {}
+
+
+def open_usb_modem():
     dev = usb.core.find(idVendor=VID, idProduct=PID, backend=_backend())
     if dev is None:
         sys.exit(f"modem {VID:04x}:{PID:04x} not found on USB")
     return dev
 
 
+def open_modem():
+    return TtyModem() if _transport() == "tty" else open_usb_modem()
+
+
 def close_modem(dev, ifnums):
+    if isinstance(dev, TtyModem):
+        for ifnum in ifnums:
+            port = dev.ports.pop(ifnum, None)
+            if port:
+                port.close()
+        return
     for ifnum in ifnums:
         usb.util.release_interface(dev, ifnum)
         if ifnum in getattr(dev, "_telaius_detached", ()):
@@ -49,6 +91,72 @@ def close_modem(dev, ifnums):
             except (NotImplementedError, usb.core.USBError):
                 pass
     usb.util.dispose_resources(dev)
+
+
+def open_port(dev, ifnum):
+    """Open an AT/PCM port through Linux tty or the raw libusb fallback."""
+    if isinstance(dev, TtyModem):
+        port = TtyPort(_tty_path(ifnum))
+        dev.ports[ifnum] = port
+        return port
+    return UsbPort(dev, ifnum)
+
+
+class TtyPort:
+    """Nonblocking raw tty with the same read/write interface as UsbPort."""
+
+    def __init__(self, path):
+        self.path = str(path)
+        self.fd = os.open(self.path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            attrs = termios.tcgetattr(self.fd)
+            # POSIX cfmakeraw, written out for Python 3.11 (tty.cfmakeraw was added in 3.12).
+            attrs[0] &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP |
+                          termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IXON)
+            attrs[1] &= ~termios.OPOST
+            attrs[2] &= ~(termios.CSIZE | termios.PARENB)
+            attrs[2] |= termios.CS8
+            attrs[3] &= ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+            attrs[6][termios.VMIN] = 0
+            attrs[6][termios.VTIME] = 0
+            termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+        except BaseException:
+            os.close(self.fd)
+            self.fd = -1
+            raise
+
+    def read(self, timeout_ms=100):
+        poller = select.poll()
+        poller.register(self.fd, select.POLLIN)
+        events = poller.poll(max(0, int(timeout_ms)))
+        if not events:
+            return b""
+        try:
+            return os.read(self.fd, 4096)
+        except BlockingIOError:
+            return b""
+
+    def write(self, data, timeout_ms=1000):
+        view = memoryview(data)
+        written = 0
+        deadline = time.monotonic() + timeout_ms / 1000
+        poller = select.poll()
+        poller.register(self.fd, select.POLLOUT)
+        while written < len(view):
+            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+            if not poller.poll(remaining_ms):
+                raise TimeoutError(f"write timeout on {self.path}")
+            try:
+                written += os.write(self.fd, view[written:])
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"write timeout on {self.path}")
+        return written
+
+    def close(self):
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
 
 
 class UsbPort:

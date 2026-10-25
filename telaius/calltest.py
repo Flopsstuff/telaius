@@ -13,7 +13,7 @@ import wave
 
 import usb.core
 
-from telaius.modem import IF_AT, IF_PCM, AtChannel, UsbPort, close_modem, log, open_modem
+from telaius.modem import IF_AT, IF_PCM, AtChannel, close_modem, log, open_modem, open_port
 
 
 def main():
@@ -25,8 +25,12 @@ def main():
     a = ap.parse_args()
 
     dev = open_modem()
-    at = AtChannel(UsbPort(dev, IF_AT))
-    pcm = UsbPort(dev, IF_PCM)
+    try:
+        at = AtChannel(open_port(dev, IF_AT))
+        pcm = open_port(dev, IF_PCM)
+    except BaseException:
+        close_modem(dev, [IF_AT, IF_PCM])
+        raise
     rate = at.pcm_rate()
     bps = rate * 2
     frame_len = bps // 50  # 20 ms, 16-bit mono
@@ -59,7 +63,7 @@ def main():
             try:
                 pcm.write(frame, timeout_ms=200)
                 stats["tx_frames"] += 1
-            except usb.core.USBError:
+            except (OSError, usb.core.USBError):
                 stats["tx_err"] += 1
             t0 += 0.02
             delay = t0 - time.monotonic()

@@ -6,13 +6,39 @@ Self-hosted outbound telephone calling for AI agents: a SIMCom SIM7600G-H modem 
 
 ## Setup
 
-Requires Python 3.11+ and libusb (`brew install libusb` on macOS).
+Requires Python 3.11+. Linux uses the kernel's `option` and `qmi_wwan` devices; macOS uses the
+raw libusb fallback (`brew install libusb`). `adb` is also needed to install the optional 16 kHz relay.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
 cp .env.example .env   # gitignored; fill in XAI_API_KEY, optionally TELAIUS_VOICE
 ```
+
+### Linux device setup
+
+On Linux, Telaius automatically uses the stable SimTech links for USB interfaces 2 and 4:
+
+```text
+/dev/serial/by-id/*SimTech*-if02-port0  # AT commands
+/dev/serial/by-id/*SimTech*-if04-port0  # call PCM
+/dev/cdc-wdm0                          # QMI
+```
+
+The user must belong to `dialout`. Install the included udev rule to grant `dialout` access to
+`cdc-wdm` and keep ModemManager away from this modem, then unplug/replug it:
+
+```bash
+sudo usermod -aG dialout "$USER"
+sudo install -m 0644 udev/99-telaius.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+# log out/in if dialout was just added, then reconnect the modem
+```
+
+If ModemManager is already managing the modem, stop it before the first reconnect
+(`sudo systemctl disable --now ModemManager`) or rely on the installed ignore rule. Set
+`TELAIUS_TRANSPORT=tty` to require kernel devices or `TELAIUS_TRANSPORT=usb` to force the raw
+libusb fallback. Automatic mode prefers kernel devices when they are present.
 
 ## Tools
 

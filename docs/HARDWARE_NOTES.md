@@ -1,6 +1,6 @@
 # Hardware Notes — what is proven vs. still open
 
-Findings from the bring-up sessions (2026-10-24/25). Tested from macOS over raw libusb; the Raspberry Pi target is not tested yet.
+Findings from the bring-up sessions (2026-10-24/25). Tested from macOS over raw libusb and from a Raspberry Pi over Linux kernel devices.
 
 ## Tested unit
 
@@ -20,7 +20,19 @@ Findings from the bring-up sessions (2026-10-24/25). Tested from macOS over raw 
 | if5 | QMI | CDC encapsulated commands; needs DTR; used by `telaius.qmi` |
 | if6 | ADB | only after `AT+CUSBADB=1` + reset; root shell into the module's Linux |
 
-macOS has no driver for `1e0e:9001`, so no `/dev/cu.*` ports appear; `telaius.modem` claims the interfaces directly with pyusb. On Linux the `option` driver normally exposes them as `/dev/ttyUSB*`, but device numbering is not guaranteed.
+macOS has no driver for `1e0e:9001`, so no `/dev/cu.*` ports appear; `telaius.modem` claims the interfaces directly with pyusb.
+
+### Linux (Raspberry Pi)
+
+Linux binds `option` to if0..if4 and `qmi_wwan` to if5. Telaius leaves those drivers attached and uses:
+
+- AT: `/dev/serial/by-id/*SimTech*-if02-port0` (currently `/dev/ttyUSB2`);
+- PCM: `/dev/serial/by-id/*SimTech*-if04-port0` (currently `/dev/ttyUSB4`);
+- QMI: `/dev/cdc-wdm0`.
+
+The tty ports are opened nonblocking and put into raw termios mode; canonical processing, echo and newline conversion would corrupt AT responses and binary PCM. `TELAIUS_TRANSPORT=tty|usb` forces the kernel or raw libusb path. Automatic mode selects tty only when both stable by-id links exist. The raw libusb path, including temporary kernel-driver detach on Linux, remains as a fallback.
+
+The user needs `dialout` for ttyUSB and cdc-wdm. Debian's ttyUSB nodes already use `root:dialout`, but cdc-wdm may default to `root:root 0600`; install `udev/99-telaius.rules` and reconnect the modem. ModemManager was not installed on the tested Pi. If it is present elsewhere, disable it or install the same rule so its AT probing cannot race Telaius.
 
 ## Proven (M0 / M1)
 
@@ -57,6 +69,6 @@ See [VOLTE_NOTES.md](VOLTE_NOTES.md) for the full story. In short:
 
 - 16 kHz (wideband) in both directions runs through `telaius-relay` on the module (incall record/music ↔ if4 / `/dev/ttyGS0`, board mic muted via codec Sleep): `voicebridge --audio relay`. It is installed over ADB with `relay/install.sh`, and the boot autostart lives in the module's `/etc/inittab`, so it is lost on a `system` reflash ([VOLTE_NOTES.md §3.8](VOLTE_NOTES.md)).
 - Orange PL VoLTE is unresolved (#33), and CSFB on T-Mobile is unreliable at the test location.
-- Not yet tested on the Raspberry Pi (USB power budget: the board can draw up to ~2 A peaks; consider the 5–12 V terminal input).
+- Raspberry Pi kernel-device control, QMI and a relay call are tested; long-term USB power margin is still unproven (the board can draw up to ~2 A peaks, so consider the 5–12 V terminal input).
 - No graceful wrap-up before the max call duration yet; the call is cut abruptly.
 - Callee name/context must be passed explicitly; the model otherwise may invent one.

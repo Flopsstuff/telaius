@@ -1,0 +1,3 @@
+# Keep ModemManager from probing Telaius's dedicated SIM7600 and grant QMI access to dialout.
+ACTION!="remove", ATTRS{idVendor}=="1e0e", ATTRS{idProduct}=="9001", ENV{ID_MM_DEVICE_IGNORE}="1"
+ACTION!="remove", SUBSYSTEM=="usbmisc", KERNEL=="cdc-wdm*", ATTRS{idVendor}=="1e0e", ATTRS{idProduct}=="9001", GROUP="dialout", MODE="0660"

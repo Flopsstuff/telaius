@@ -1,8 +1,9 @@
-"""Minimal QMI client for the SIM7600 over raw libusb (if5), plus a CLI.
+"""Minimal QMI client for the SIM7600 over Linux cdc-wdm or raw libusb, plus a CLI.
 
-QMI messages travel as CDC encapsulated commands on interface 5 (SEND_ENCAPSULATED_COMMAND /
-GET_ENCAPSULATED_RESPONSE control transfers). Used to read the IMS registration state (IMSA),
-which no AT command on this firmware reports, and to list/switch carrier MBN profiles (PDC).
+Linux sends whole QMUX messages through /dev/cdc-wdm0. The macOS fallback uses CDC encapsulated
+commands on interface 5 (SEND_ENCAPSULATED_COMMAND / GET_ENCAPSULATED_RESPONSE control transfers).
+Used to read the IMS registration state (IMSA), which no AT command on this firmware reports, and
+to list/switch carrier MBN profiles (PDC).
 
 Usage:
   python -m telaius.qmi status            # IMS registration + active MBN
@@ -10,19 +11,22 @@ Usage:
   python -m telaius.qmi mbn-select HEXID  # select + activate a profile (the modem resets)
 """
 import argparse
+import os
+import select
 import struct
 import time
 
 import usb.core
 import usb.util
 
-from telaius.modem import open_modem
+from telaius.modem import open_usb_modem
 
 IF_QMI = 5
 SVC_CTL, SVC_IMSA, SVC_PDC = 0x00, 0x21, 0x24
 PDC_SOFTWARE = 1
 IMS_REG_STATES = {0: "NOT_REGISTERED", 1: "REGISTERING", 2: "REGISTERED", 3: "LIMITED"}
 SRV_STATES = {0: "unavailable", 1: "limited", 2: "full"}
+CDC_WDM = "/dev/cdc-wdm0"
 
 
 def tlv(t, v):
@@ -38,9 +42,57 @@ def parse_tlvs(b):
     return out
 
 
-class Qmi:
+class CdcWdmPort:
+    """QMI transport through Linux qmi_wwan's character device."""
+
+    def __init__(self, path=CDC_WDM):
+        self.path = path
+        try:
+            self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        except PermissionError as e:
+            raise PermissionError(
+                f"cannot open {path}; grant group dialout access with the Telaius udev rule"
+            ) from e
+
+    def write(self, data, timeout=3.0):
+        deadline = time.monotonic() + timeout
+        poller = select.poll()
+        poller.register(self.fd, select.POLLOUT)
+        while True:
+            remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+            if not poller.poll(remaining_ms):
+                raise TimeoutError(f"write timeout on {self.path}")
+            try:
+                written = os.write(self.fd, data)
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"write timeout on {self.path}")
+                continue
+            if written != len(data):
+                raise OSError(f"short QMI write to {self.path}: {written}/{len(data)} bytes")
+            return
+
+    def read(self, timeout):
+        poller = select.poll()
+        poller.register(self.fd, select.POLLIN)
+        if not poller.poll(max(0, int(timeout * 1000))):
+            return b""
+        try:
+            return os.read(self.fd, 4096)
+        except BlockingIOError:
+            return b""
+
+    def close(self):
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
+
+
+class UsbQmiPort:
+    """Raw libusb QMI fallback for macOS or Linux without cdc-wdm."""
+
     def __init__(self, dev=None):
-        self.dev = dev or open_modem()
+        self.dev = dev or open_usb_modem()
         try:
             self._kernel_detached = self.dev.is_kernel_driver_active(IF_QMI)
         except NotImplementedError:
@@ -50,18 +102,6 @@ class Qmi:
         usb.util.claim_interface(self.dev, IF_QMI)
         # QMI only answers with DTR asserted (same quirk as qmi_wwan's SET_DTR).
         self.dev.ctrl_transfer(0x21, 0x22, 0x01, IF_QMI, None)
-        self.txn = 1
-        self.pending = []
-        time.sleep(0.5)
-        while self._recv_raw(0.3):
-            pass
-        # CTL Sync drops stale clients; after a modem reset CTL stays silent until it succeeds.
-        for _ in range(3):
-            try:
-                self.request(SVC_CTL, 0, 0x0027, timeout=1.5)
-                break
-            except TimeoutError:
-                pass
 
     def close(self):
         usb.util.release_interface(self.dev, IF_QMI)
@@ -72,7 +112,7 @@ class Qmi:
                 pass
         usb.util.dispose_resources(self.dev)
 
-    def _recv_raw(self, timeout):
+    def read(self, timeout):
         end = time.time() + timeout
         while True:
             # Drain RESPONSE_AVAILABLE notifications; firmware B06 stops answering if they pile up.
@@ -89,6 +129,47 @@ class Qmi:
             if time.time() > end:
                 return b""
             time.sleep(0.02)
+
+    def write(self, data, timeout=3.0):
+        self.dev.ctrl_transfer(0x21, 0x00, 0, IF_QMI, data)
+
+
+def open_qmi_port(dev=None):
+    forced = os.environ.get("TELAIUS_TRANSPORT", "").lower()
+    if forced and forced not in {"tty", "usb"}:
+        raise ValueError("TELAIUS_TRANSPORT must be tty or usb")
+    if dev is not None or forced == "usb":
+        return UsbQmiPort(dev)
+    if forced == "tty" or os.path.exists(CDC_WDM):
+        return CdcWdmPort()
+    return UsbQmiPort()
+
+
+class Qmi:
+    def __init__(self, dev=None, transport=None):
+        self.transport = transport or open_qmi_port(dev)
+        try:
+            self.txn = 1
+            self.pending = []
+            time.sleep(0.5)
+            while self._recv_raw(0.3):
+                pass
+            # CTL Sync drops stale clients; after a modem reset CTL stays silent until it succeeds.
+            for _ in range(3):
+                try:
+                    self.request(SVC_CTL, 0, 0x0027, timeout=1.5)
+                    break
+                except TimeoutError:
+                    pass
+        except BaseException:
+            self.transport.close()
+            raise
+
+    def close(self):
+        self.transport.close()
+
+    def _recv_raw(self, timeout):
+        return self.transport.read(timeout)
 
     @staticmethod
     def _parse(raw):
@@ -107,7 +188,7 @@ class Qmi:
         self.txn = (self.txn + 1) & 0xFF or 1
         fmt = "<BBHH" if svc == SVC_CTL else "<BHHH"
         sdu = struct.pack(fmt, 0, txn, msg, len(tlvs)) + tlvs
-        self.dev.ctrl_transfer(0x21, 0x00, 0, IF_QMI, struct.pack("<BHBBB", 1, 5 + len(sdu), 0, svc, cid) + sdu)
+        self.transport.write(struct.pack("<BHBBB", 1, 5 + len(sdu), 0, svc, cid) + sdu, timeout)
         end = time.time() + timeout
         while time.time() < end:
             raw = self._recv_raw(end - time.time())
@@ -246,7 +327,7 @@ def main():
     finally:
         try:
             q.close()
-        except usb.core.USBError:
+        except (OSError, usb.core.USBError):
             pass  # the modem may already be resetting after mbn-select
 
 
