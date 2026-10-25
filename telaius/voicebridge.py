@@ -30,7 +30,7 @@ import websockets
 
 from telaius.callstore import CALLS_DIR, call_dir, save_call
 from telaius.modem import IF_AT, IF_PCM, AtChannel, PcmAligner, UsbPort, close_modem, open_modem
-from telaius.prompts import LANG_HINT, TOOLS, build_instructions
+from telaius.prompts import LANG_HINT, TOOLS, bot_name, build_instructions
 
 XAI_URL = "wss://api.x.ai/v1/realtime?model=grok-voice-latest"
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -42,15 +42,20 @@ def log(msg):
     print(f"[{time.monotonic() - t_start:7.2f}] {msg}", flush=True)
 
 
-def api_key():
-    if os.environ.get("XAI_API_KEY"):
-        return os.environ["XAI_API_KEY"]
+def env_value(name, default=None):
+    """A setting from the environment, else from .env in the repository root, else `default`."""
+    if os.environ.get(name):
+        return os.environ[name]
     env = REPO_ROOT / ".env"
     if env.exists():
         for line in env.read_text().splitlines():
-            if line.startswith("XAI_API_KEY=") and line.split("=", 1)[1].strip():
+            if line.startswith(f"{name}=") and line.split("=", 1)[1].strip():
                 return line.split("=", 1)[1].strip()
-    sys.exit("XAI_API_KEY is not set (environment or .env)")
+    return default
+
+
+def api_key():
+    return env_value("XAI_API_KEY") or sys.exit("XAI_API_KEY is not set (environment or .env)")
 
 
 def session_config(rate, instructions, voice, hint, with_transcription):
@@ -229,7 +234,8 @@ async def call(spec, audio, max_seconds, out_root):
     state = {"transcript": [], "transcript_idx": {}, "t_call": time.monotonic()}
     stop = threading.Event()
     rx_all, tx_all = bytearray(), bytearray()
-    record = {"number": number, "lang": spec["lang"], "voice": spec["voice"], "audio": audio, "rate": rate,
+    record = {"number": number, "lang": spec["lang"], "voice": spec["voice"],
+              "bot_name": bot_name(spec["lang"], spec["voice"]), "audio": audio, "rate": rate,
               "task": spec.get("task"), "callee": spec.get("callee"), "context": spec.get("context"),
               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "answered": False, "network": None}
 
@@ -401,7 +407,8 @@ def main():
     ap.add_argument("--formal", action="store_true",
                     help="calling an organization: open with the question, then say it's an AI assistant; formal address")
     ap.add_argument("--lang", choices=sorted(LANG_HINT), default="ru")
-    ap.add_argument("--voice", default="rex", help="xAI voice (e.g. rex, eve, ara, leo, sal)")
+    ap.add_argument("--voice", default=env_value("TELAIUS_VOICE", "rex"),
+                    help="xAI voice: rex, leo (male), eve, ara (female), sal; default TELAIUS_VOICE from .env, else rex")
     ap.add_argument("--audio", choices=["usb", "relay"], default="usb", help="call audio path (see above)")
     ap.add_argument("--max-seconds", type=float, default=120)
     ap.add_argument("--out-dir", type=Path, default=CALLS_DIR,

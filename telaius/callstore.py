@@ -74,7 +74,7 @@ def write_audio(path_stem, rate, pcm):
     return out.name
 
 
-def transcript_text(record, bot_name="Telaius"):
+def transcript_text(record):
     def mmss(t):
         return f"{int(t) // 60:02d}:{int(t) % 60:02d}"
 
@@ -88,7 +88,7 @@ def transcript_text(record, bot_name="Telaius"):
         f"Резюме: {record.get('summary') or '—'}",
         "",
     ]
-    names = {"bot": bot_name, "user": (record.get("callee") or "Собеседник").split(",")[0]}
+    names = {"bot": record.get("bot_name") or "Telaius", "user": (record.get("callee") or "Собеседник").split(",")[0]}
     for t in record.get("transcript", []):
         lines.append(f"[{mmss(t['t'])}] {names.get(t['role'], t['role'])}: {t['text']}")
     return "\n".join(lines) + "\n"

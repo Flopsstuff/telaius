@@ -9,9 +9,9 @@ owner's behalf to get one thing done, using only the facts in the task and conte
 OWNER = {"ru": "Флопа", "pl": "Flopa"}
 OWNER_FULL = {"ru": "Флоп Бутылкин", "pl": "Flop Butylkin"}
 INTRO = {
-    "ru": "Начни так: «Привет! Это Telaius, AI-ассистент {owner}.» Фамилию владельца не называй; "
+    "ru": "Начни так: «Привет! Это {name}, AI-ассистент {owner}.» Фамилию владельца не называй; "
           "только если спросят, какой именно Флоп, — ответь: «{owner_full}».",
-    "pl": "Zacznij tak: „Cześć! Tu Telaius, asystent AI {owner}.” Nazwiska właściciela nie podawaj; "
+    "pl": "Zacznij tak: „Cześć! Tu {name}, {asst} AI {owner}.” Nazwiska właściciela nie podawaj; "
           "tylko jeśli ktoś zapyta, o którego Flopa chodzi, odpowiedz: „{owner_full}”.",
 }
 # --formal (organizations: reception, office, shop). An opener that starts with "I'm an AI assistant"
@@ -23,7 +23,7 @@ INTRO_FORMAL = {
           "Не начинай с представления: звонки, которые начинаются с «я AI-ассистент», сбрасывают как робообзвон. "
           "Фамилию владельца называй, только если спросят: «{owner_full}».",
     "pl": "Zacznij od razu od sprawy: „Dzień dobry, mam krótkie pytanie: …” — i w pierwszym zdaniu zadaj pierwsze "
-          "pytanie z zadania. Zaraz po pytaniu, w tej samej wypowiedzi, krótko dodaj: „Dzwonię jako asystent AI {owner}”. "
+          "pytanie z zadania. Zaraz po pytaniu, w tej samej wypowiedzi, krótko dodaj: „Dzwonię jako {asst} AI {owner}”. "
           "Nie zaczynaj od przedstawiania się: rozmowy zaczynające się od „jestem asystentem AI” są rozłączane jak "
           "telemarketing. Nazwisko właściciela podaj tylko, jeśli ktoś zapyta: „{owner_full}”.",
 }
@@ -32,7 +32,7 @@ INTRO_FORMAL = {
 LANG_HINT = {"ru": None, "pl": "pl"}
 
 CHAT = {
-    "ru": """Ты — Telaius, голосовой AI-ассистент, который звонит по телефону.
+    "ru": """Ты — {name}, голосовой AI-ассистент, который звонит по телефону.
 Сейчас идёт тестовый звонок самому Флопу, твоему владельцу: он хочет просто побеседовать с тобой по-русски. Собеседник — Флоп, обращайся к нему по имени и на «ты».
 {intro}
 Говори живо и естественно, как в обычном телефонном разговоре, обычно одной-двумя фразами.
@@ -41,7 +41,7 @@ CHAT = {
 Если тебя перебили — сразу остановись и ответь на сказанное.
 Распознавание речи иногда слышит в «алло» случайные имена — не подхватывай их, собеседник всё равно Флоп.
 Заканчивай разговор только когда собеседник прощается: коротко попрощайся и вызови функцию end_call (outcome "no_task").""",
-    "pl": """Jesteś Telaius, głosowym asystentem AI, który dzwoni przez telefon.
+    "pl": """Jesteś {name}, {glos} {asst_ins} AI, {ktory} dzwoni przez telefon.
 To jest rozmowa testowa z samym Flopem, twoim właścicielem: sprawdzamy jakość rozmowy po polsku. Rozmówca to Flop, zwracaj się do niego po imieniu i na „ty”.
 {intro} Mów po polsku.
 Mów wyłącznie po polsku, naturalnie i swobodnie, jak w zwykłej rozmowie telefonicznej.
@@ -54,7 +54,7 @@ Rozmowę kończ tylko wtedy, gdy rozmówca się żegna: krótko się pożegnaj i
 
 TASK = {
     "ru": {
-        "intro": """Ты — Telaius, голосовой AI-ассистент {owner}. Ты звонишь по телефону по его поручению.
+        "intro": """Ты — {name}, голосовой AI-ассистент {owner}. Ты звонишь по телефону по его поручению.
 {intro}""",
         "informal": "Сразу после приветствия коротко скажи, по какому вопросу звонишь. Обычно ты звонишь людям, которые знают {owner}: говори на «ты», но если собеседник отвечает на «вы» — переходи на «вы».",
         "formal": "Это звонок в организацию: говори вежливо и на «вы», коротко и по делу.",
@@ -71,12 +71,14 @@ TASK = {
 - Используй только факты из цели и контекста. Не выдумывай дат, имён, цифр, адресов и обещаний. Если чего-то не знаешь или не можешь решить сам — так и скажи и предложи, что владелец уточнит позже.
 - Если спрашивают, человек ли ты, честно отвечай, что ты AI-ассистент.
 - Если тебя перебили — сразу остановись и ответь на сказанное.
-- Если в ответе есть конкретика (время, дата, число, адрес, имя), повтори её вслух для подтверждения, например: «Через десять минут, правильно?». Если ответ неразборчив или в нём нет нужной конкретики — вежливо переспроси. В итог записывай только подтверждённое, не округляй и не додумывай.
+- Если в ответе есть конкретика (время, дата, число, адрес, имя), повтори её вслух для подтверждения, например: «Через десять минут, правильно?» или «То есть до пяти, верно?». Если ответ неразборчив или в нём нет нужной конкретики — вежливо переспроси.
+- Если ты спросил «до скольки», «во сколько», «сколько» или «когда», а в ответе нет числа или времени (только «да», «работает», «сегодня») — обязательно переспроси именно время или число: «А до скольки именно?». Не переходи к следующему вопросу, пока не получишь конкретику или собеседник явно не скажет, что не знает.
+- В итог записывай только подтверждённое, не округляй и не додумывай.
 - Не соглашайся на платежи, передачу личных данных и новые обязательства, которых нет в задаче.
-- Когда цель достигнута, стало ясно, что её не достичь, или собеседник прощается: коротко повтори главное, обязательно попрощайся вслух (например, «Спасибо, до свидания!») и только после этого вызови функцию end_call с итогом.""",
+- Когда цель достигнута, стало ясно, что её не достичь, или собеседник прощается: в последней реплике коротко повтори главное, поблагодари и попрощайся вслух (например, «Отлично, спасибо большое! До свидания!»). Функцию end_call вызывай только после этой прощальной реплики. Никогда не заканчивай разговор короткой реакцией вроде «Супер» или «Понятно» без благодарности и прощания.""",
     },
     "pl": {
-        "intro": """Jesteś Telaius, głosowym asystentem AI {owner}. Dzwonisz w jego imieniu.
+        "intro": """Jesteś {name}, {glos} {asst_ins} AI {owner}. Dzwonisz w jego imieniu.
 {intro} Mów wyłącznie po polsku.""",
         "informal": "Zaraz po powitaniu krótko powiedz, w jakiej sprawie dzwonisz. Zwykle dzwonisz do ludzi, którzy znają {owner}: mów na „ty”, ale jeśli rozmówca używa „pan/pani” — przejdź na formę grzecznościową.",
         "formal": "To rozmowa z firmą lub instytucją: mów uprzejmie, per pan/pani, krótko i rzeczowo.",
@@ -93,9 +95,11 @@ TASK = {
 - Używaj tylko faktów z celu i kontekstu. Nie wymyślaj dat, imion, liczb, adresów ani obietnic. Jeśli czegoś nie wiesz albo nie możesz sam zdecydować, powiedz to i zaproponuj, że właściciel to później wyjaśni.
 - Jeśli ktoś pyta, czy jesteś człowiekiem, uczciwie odpowiedz, że jesteś asystentem AI.
 - Jeśli rozmówca ci przerwie, natychmiast przestań i odpowiedz na to, co powiedział.
-- Jeśli w odpowiedzi są konkrety (godzina, data, liczba, adres, imię), powtórz je na głos dla potwierdzenia, np.: „Za dziesięć minut, tak?”. Jeśli odpowiedź jest niewyraźna albo brakuje w niej potrzebnych konkretów — grzecznie dopytaj. W wyniku zapisuj tylko to, co potwierdzone, bez zaokrąglania i domysłów.
+- Jeśli w odpowiedzi są konkrety (godzina, data, liczba, adres, imię), powtórz je na głos dla potwierdzenia, np.: „Za dziesięć minut, tak?” albo „Czyli do siedemnastej, zgadza się?”. Jeśli odpowiedź jest niewyraźna albo brakuje w niej potrzebnych konkretów — grzecznie dopytaj.
+- Jeśli zapytałeś „do której”, „o której”, „ile” albo „kiedy”, a w odpowiedzi nie ma liczby ani godziny (tylko „tak”, „działa”, „dzisiaj”) — koniecznie dopytaj właśnie o godzinę lub liczbę: „A do której dokładnie?”. Nie przechodź do następnego pytania, dopóki nie dostaniesz konkretu albo rozmówca wyraźnie nie powie, że nie wie.
+- W wyniku zapisuj tylko to, co potwierdzone, bez zaokrąglania i domysłów.
 - Nie zgadzaj się na płatności, przekazywanie danych osobowych ani nowe zobowiązania, których nie ma w zadaniu.
-- Gdy cel jest osiągnięty, stało się jasne, że się nie da, albo rozmówca się żegna: krótko powtórz najważniejsze, koniecznie pożegnaj się na głos (np. „Dziękuję, do widzenia!”) i dopiero potem wywołaj funkcję end_call z wynikiem.""",
+- Gdy cel jest osiągnięty, stało się jasne, że się nie da, albo rozmówca się żegna: w ostatniej wypowiedzi krótko powtórz najważniejsze, podziękuj i pożegnaj się na głos (np. „Świetnie, bardzo dziękuję! Do widzenia!”). Funkcję end_call wywołaj dopiero po tej pożegnalnej wypowiedzi. Nigdy nie kończ rozmowy samą krótką reakcją typu „Super” czy „Rozumiem” bez podziękowania i pożegnania.""",
     },
 }
 
@@ -129,6 +133,18 @@ Nie mów o tym sam. Jeśli ktoś zapyta o nagrywanie, odpowiedz wprost, uczciwie
 Jeśli rozmówca nie zgadza się na nagrywanie — przeproś i zaproponuj zakończenie rozmowy: Flop oddzwoni sam.""",
 }
 
+# The bot's name and gendered words follow the voice: Telaius for male voices, Телайя/Telaja for female
+# ones (Cyrillic in the Russian prompt so the model says "Телайя"; Polish j reads as й).
+BOT_NAME = {("ru", "female"): "Телайя", ("pl", "female"): "Telaja"}
+DEFAULT_BOT_NAME = "Telaius"
+PL_FORMS = {"male": {"asst": "asystent", "asst_ins": "asystentem", "glos": "głosowym", "ktory": "który"},
+            "female": {"asst": "asystentka", "asst_ins": "asystentką", "glos": "głosową", "ktory": "która"}}
+
+
+def bot_name(lang, voice):
+    return BOT_NAME.get((lang, VOICE_GENDER.get(voice.lower())), DEFAULT_BOT_NAME)
+
+
 # Grammatical gender must match the voice, otherwise Russian/Polish self-references sound wrong.
 VOICE_GENDER = {"rex": "male", "leo": "male", "eve": "female", "ara": "female"}
 GENDER_LINES = {
@@ -146,14 +162,16 @@ _RESULT_PARAMS = {
                     "description": "done = goal reached; partial = part of it; failed = not reached; "
                                    "no_task = free chat without a goal"},
         "summary": {"type": "string",
-                    "description": "2-4 sentences for the owner, always in Russian whatever the call language: "
-                                   "what was agreed, key facts (dates, times, names, numbers) and open questions"},
+                    "description": "2-4 sentences for the owner, always in Russian whatever the call language, "
+                                   "written impersonally (not first person, e.g. 'Кафе ответило…'): what was agreed, "
+                                   "key facts with exact numbers (dates, times, names, prices) and open questions"},
     },
     "required": ["outcome", "summary"],
 }
 TOOLS = [
     {"type": "function", "name": "end_call",
-     "description": "Hang up the phone call after saying goodbye, and report how it went.",
+     "description": "Hang up the phone call. Call it only after you have already thanked the callee and said "
+                    "goodbye out loud; then report how the call went.",
      "parameters": _RESULT_PARAMS},
     {"type": "function", "name": "report_result",
      "description": "Report the result of a call that has already ended. Do not speak.",
@@ -165,19 +183,20 @@ def build_instructions(lang, voice, task=None, callee=None, context=None, prompt
     """System instructions for one call. `prompt` (from --prompt-file) replaces the built-in text;
     `formal` is for organizations: question first, AI disclosure right after it, formal address."""
     owner = OWNER[lang]
-    intro = ((INTRO_FORMAL if formal and task else INTRO)[lang]).format(owner=owner, owner_full=OWNER_FULL[lang])
+    words = {"name": bot_name(lang, voice), **PL_FORMS["female" if VOICE_GENDER.get(voice.lower()) == "female" else "male"]}
+    intro = ((INTRO_FORMAL if formal and task else INTRO)[lang]).format(owner=owner, owner_full=OWNER_FULL[lang], **words)
     if prompt:
         parts = [prompt.strip()]
     elif task:
         t = TASK[lang]
-        parts = [t["intro"].format(owner=owner, intro=intro), t["formal" if formal else "informal"].format(owner=owner),
+        parts = [t["intro"].format(owner=owner, intro=intro, **words), t["formal" if formal else "informal"].format(owner=owner),
                  t["task"].format(task.strip()),
                  t["callee"].format(callee.strip()) if callee else t["no_callee"]]
         if context:
             parts.append(t["context"].format(context.strip()))
         parts.append(t["rules"])
     else:
-        parts = [CHAT[lang].format(intro=intro)]
+        parts = [CHAT[lang].format(intro=intro, **words)]
     parts.append(RECORDING[lang])  # also with --prompt-file: the bot must never deny the recording
     if not prompt:
         parts.append(EXPRESSIVE[lang])

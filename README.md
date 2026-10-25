@@ -11,7 +11,7 @@ Requires Python 3.11+ and libusb (`brew install libusb` on macOS).
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
-echo 'XAI_API_KEY=...' > .env   # gitignored
+cp .env.example .env   # gitignored; fill in XAI_API_KEY, optionally TELAIUS_VOICE
 ```
 
 ## Tools
