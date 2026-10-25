@@ -44,6 +44,6 @@ relay/install.sh
 
 Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 
-Prompts live in `telaius/prompts.py`: `CHAT` is the free test chat, `TASK` is the template for `--task`, and the owner's name for the introduction is in `OWNER`. `--prompt-file` replaces the built-in prompt.
+Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template and rules, recording facts, voice tags, gender lines), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя), voice genders, transcription hints and tool descriptions. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
 
 Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordings/`; both are gitignored. Only call numbers whose owners agreed to be called by an AI assistant.

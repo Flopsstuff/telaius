@@ -1,0 +1,36 @@
+# Telaius prompt settings shared by all languages. Texts are in <lang>.toml next to this file.
+
+# Whose assistant the bot is. The intro uses the short form (genitive); the full name only if asked.
+[owner]
+ru = "Флопа"
+pl = "Flopa"
+
+[owner_full]
+ru = "Флоп Бутылкин"
+pl = "Flop Butylkin"
+
+# Bot name by voice gender. Cyrillic in Russian so the model says "Телайя"; Polish j reads as й.
+[bot_name]
+default = "Telaius"
+
+[bot_name.female]
+ru = "Телайя"
+pl = "Telaja"
+
+# xAI voices and their grammatical gender (voices not listed: no gender line, default bot name)
+[voices]
+rex = "male"
+leo = "male"
+eve = "female"
+ara = "female"
+
+# Transcription language hint for grok-transcribe; languages not listed use auto-detection
+[lang_hint]
+pl = "pl"
+
+# Descriptions of the bot's functions (the JSON schema itself is in telaius/prompts.py)
+[tools]
+end_call = '''Hang up the phone call. Call it only after you have already thanked the callee and said goodbye out loud; then report how the call went.'''
+report_result = "Report the result of a call that has already ended. Do not speak."
+outcome = "done = goal reached; partial = part of it; failed = not reached; no_task = free chat without a goal"
+summary = '''2-4 sentences for the owner, always in Russian whatever the call language, written impersonally (not first person, e.g. 'Кафе ответило…'): what was agreed, key facts with exact numbers (dates, times, names, prices) and open questions'''
