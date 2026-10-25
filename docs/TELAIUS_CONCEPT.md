@@ -1,6 +1,6 @@
 # Telaius — High-Level Concept
 
-**Project:** [Fl0p/telaius](https://github.com/Fl0p/telaius)  
+**Project:** [Flopsstuff/telaius](https://github.com/Flopsstuff/telaius)  
 **Name:** *Telephone + Aius Locutius*, the Roman disembodied voice.  
 **Status:** Concept / MVP design brief.
 
@@ -168,6 +168,6 @@ Inbound answering, call centers/campaigns, multi-modem pools, web UI, CRM integr
 
 ## 11. Implementation Guidance to the Building Agent
 
-**Do not start by designing a large system.** First inspect the existing [Telaius repository](https://github.com/Fl0p/telaius), then study DAWN's audio implementation. Document what is known versus hardware-dependent. Produce a minimal reproducible USB call-and-audio test for the actual SIM7600G-H before wiring in xAI or designing an extensive MCP layer.
+**Do not start by designing a large system.** First inspect the existing [Telaius repository](https://github.com/Flopsstuff/telaius), then study DAWN's audio implementation. Document what is known versus hardware-dependent. Produce a minimal reproducible USB call-and-audio test for the actual SIM7600G-H before wiring in xAI or designing an extensive MCP layer.
 
 Treat the architecture above as intent and boundaries, not mandatory module names or an inflexible technology prescription. Favor the smallest reliable implementation, and explicitly report unresolved compatibility risks.
