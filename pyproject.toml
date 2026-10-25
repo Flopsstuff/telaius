@@ -1,0 +1,16 @@
+[project]
+name = "telaius"
+version = "0.1.0"
+description = "Self-hosted outbound telephone calling for AI agents (SIM7600G-H + xAI Realtime)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyusb>=1.3",
+    "websockets>=14",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["telaius"]

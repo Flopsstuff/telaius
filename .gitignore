@@ -1,0 +1,17 @@
+# Private notes and secrets
+private/
+.env
+
+# Calls (recordings, transcripts, results) and scratch audio
+calls/
+recordings/
+*.wav
+*.aiff
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+
+# macOS
+.DS_Store

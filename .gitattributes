@@ -1,0 +1,11 @@
+# Binaries live in Git LFS
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
+*.mp3 filter=lfs diff=lfs merge=lfs -text
+*.wav filter=lfs diff=lfs merge=lfs -text
+*.img filter=lfs diff=lfs merge=lfs -text
+*.mbn filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text
+# Prebuilt relay for the SIM7600 module (static ARMv7), so install.sh works without Docker
+relay/telaius-relay filter=lfs diff=lfs merge=lfs -text
