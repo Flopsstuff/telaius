@@ -408,7 +408,7 @@ def main():
                     help="calling an organization: open with the question, then say it's an AI assistant; formal address")
     ap.add_argument("--lang", choices=sorted(LANG_HINT), default="ru")
     ap.add_argument("--voice", default=env_value("TELAIUS_VOICE", "rex"),
-                    help="xAI voice: rex, leo (male), eve, ara (female), sal; default TELAIUS_VOICE from .env, else rex")
+                    help="xAI voice: rex, leo, sal (male), eve, ara (female); default TELAIUS_VOICE from .env, else rex")
     ap.add_argument("--audio", choices=["usb", "relay"], default="usb", help="call audio path (see above)")
     ap.add_argument("--max-seconds", type=float, default=120)
     ap.add_argument("--out-dir", type=Path, default=CALLS_DIR,

@@ -21,6 +21,7 @@ pl = "Telaja"
 [voices]
 rex = "male"
 leo = "male"
+sal = "male"
 eve = "female"
 ara = "female"
 
