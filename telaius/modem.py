@@ -43,6 +43,11 @@ def open_modem():
 def close_modem(dev, ifnums):
     for ifnum in ifnums:
         usb.util.release_interface(dev, ifnum)
+        if ifnum in getattr(dev, "_telaius_detached", ()):
+            try:
+                dev.attach_kernel_driver(ifnum)
+            except (NotImplementedError, usb.core.USBError):
+                pass
     usb.util.dispose_resources(dev)
 
 
@@ -51,6 +56,15 @@ class UsbPort:
 
     def __init__(self, dev, ifnum):
         intf = dev.get_active_configuration()[(ifnum, 0)]
+        try:
+            kernel_active = dev.is_kernel_driver_active(ifnum)
+        except NotImplementedError:
+            kernel_active = False
+        if kernel_active:
+            dev.detach_kernel_driver(ifnum)
+            detached = getattr(dev, "_telaius_detached", set())
+            detached.add(ifnum)
+            dev._telaius_detached = detached
         usb.util.claim_interface(dev, ifnum)
         self.ep_in = self._bulk(intf, usb.util.ENDPOINT_IN)
         self.ep_out = self._bulk(intf, usb.util.ENDPOINT_OUT)

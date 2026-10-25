@@ -41,6 +41,12 @@ def parse_tlvs(b):
 class Qmi:
     def __init__(self, dev=None):
         self.dev = dev or open_modem()
+        try:
+            self._kernel_detached = self.dev.is_kernel_driver_active(IF_QMI)
+        except NotImplementedError:
+            self._kernel_detached = False
+        if self._kernel_detached:
+            self.dev.detach_kernel_driver(IF_QMI)
         usb.util.claim_interface(self.dev, IF_QMI)
         # QMI only answers with DTR asserted (same quirk as qmi_wwan's SET_DTR).
         self.dev.ctrl_transfer(0x21, 0x22, 0x01, IF_QMI, None)
@@ -59,6 +65,11 @@ class Qmi:
 
     def close(self):
         usb.util.release_interface(self.dev, IF_QMI)
+        if self._kernel_detached:
+            try:
+                self.dev.attach_kernel_driver(IF_QMI)
+            except (NotImplementedError, usb.core.USBError):
+                pass
         usb.util.dispose_resources(self.dev)
 
     def _recv_raw(self, timeout):
