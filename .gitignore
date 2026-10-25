@@ -15,3 +15,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local MCP servers (Onshape FeatureScript)
+.mcp.json
