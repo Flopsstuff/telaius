@@ -2,7 +2,7 @@
 
 **Project:** [Flopsstuff/telaius](https://github.com/Flopsstuff/telaius)  
 **Name:** *Telephone + Aius Locutius*, the Roman disembodied voice.  
-**Status:** Concept / MVP design brief.
+**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work as CLI prototypes. M2 (MCP interface) is not started.
 
 ## 1. Vision
 
