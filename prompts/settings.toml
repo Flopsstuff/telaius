@@ -1,13 +1,15 @@
 # Telaius prompt settings shared by all languages. Texts are in <lang>.toml next to this file.
 
-# Whose assistant the bot is. The intro uses the short form (genitive); the full name only if asked.
+# Whose assistant the bot is. The intro uses the short form (genitive; possessive in English); the full name only if asked.
 [owner]
 ru = "Флопа"
 pl = "Flopa"
+en = "Flop's"
 
 [owner_full]
 ru = "Флоп Бутылкин"
 pl = "Flop Butylkin"
+en = "Flop Butylkin"
 
 # Bot name by voice gender. Cyrillic in Russian so the model says "Телайя"; Polish j reads as й.
 [bot_name]
@@ -16,6 +18,7 @@ default = "Telaius"
 [bot_name.female]
 ru = "Телайя"
 pl = "Telaja"
+en = "Telaya"
 
 # xAI voices and their grammatical gender (voices not listed: no gender line, default bot name)
 [voices]
@@ -28,6 +31,7 @@ ara = "female"
 # Transcription language hint for grok-transcribe; languages not listed use auto-detection
 [lang_hint]
 pl = "pl"
+en = "en"
 
 # Descriptions of the bot's functions (the JSON schema itself is in telaius/prompts.py)
 [tools]
