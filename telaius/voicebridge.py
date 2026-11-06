@@ -2,15 +2,16 @@
 
 Usage:
   python -m telaius.voicebridge --no-call                      # test the xAI session only, save the greeting
-  python -m telaius.voicebridge NUMBER [--lang ru|pl] [--voice rex] [--audio usb|relay] [--max-seconds N]
+  python -m telaius.voicebridge NUMBER [--lang ru|pl|en] [--voice rex] [--audio relay|usb] [--max-seconds N]
   python -m telaius.voicebridge NUMBER --task "Записаться на стрижку в субботу после 12" \
-      --callee "Барбершоп Brzytwa" --context "Имя клиента: Алексей" --audio relay
+      --callee "Барбершоп Brzytwa" --context "Имя клиента: Алексей"
 
 Without --task the bot holds a free test chat. Each call writes calls/<date>_<time>_<callee>/ (gitignored)
 with call.mp3 (both sides), transcript.txt and result.json (outcome, summary, transcript, end reason).
 
---audio usb    SIMCom USB PCM (AT+CPCMREG), rate follows AT+CPCMFRM (8 kHz on the hotfix firmware)
---audio relay  telaius-relay running on the module (relay/), 16 kHz both ways, no AT+CPCMREG
+--audio relay  (default) telaius-relay running on the module (relay/), 16 kHz both ways, no AT+CPCMREG
+--audio usb    SIMCom USB PCM (AT+CPCMREG), rate follows AT+CPCMFRM (8 kHz on the hotfix firmware);
+               audibly worse on VoLTE, use it when the relay is not installed
 
 XAI_API_KEY is read from the environment or from .env in the repository root.
 """
@@ -413,7 +414,7 @@ def main():
     ap.add_argument("--lang", choices=sorted(LANG_HINT), default="ru")
     ap.add_argument("--voice", default=env_value("TELAIUS_VOICE", "rex"),
                     help="xAI voice: rex, leo, sal (male), eve, ara (female); default TELAIUS_VOICE from .env, else rex")
-    ap.add_argument("--audio", choices=["usb", "relay"], default="usb", help="call audio path (see above)")
+    ap.add_argument("--audio", choices=["relay", "usb"], default="relay", help="call audio path (see above)")
     ap.add_argument("--max-seconds", type=float, default=120)
     ap.add_argument("--out-dir", type=Path, default=CALLS_DIR,
                     help="each call gets its own subfolder with call.mp3, transcript.txt and result.json")
