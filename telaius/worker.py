@@ -14,14 +14,19 @@ import sys
 from pathlib import Path
 
 from telaius.callstore import LOG_FILE, call_dir, read_spec, read_status, write_spec, write_status
+from telaius.config import load_config
 from telaius.errors import TelaiusError
 from telaius.lock import ModemLock
 from telaius.logs import log, setup
+from telaius.policy import from_config
 from telaius.session import CallSession, stamp
 
 
-def start_call(spec, out_root):
+def start_call(spec, out_root, policy=None):
     """Start a call in its own process; returns its directory (the name is the call id)."""
+    spec, clipped = (policy or from_config(load_config(), out_root)).apply_call(spec)
+    if clipped:
+        log.warning("max_seconds limited to %g by policy", spec.max_seconds)
     ModemLock(f"call to {spec.callee or 'number'}").acquire().release()  # fail fast while the modem is busy
     directory = call_dir(spec.callee, spec.number, out_root)
     directory.mkdir(parents=True, exist_ok=True)

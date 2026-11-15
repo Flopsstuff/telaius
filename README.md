@@ -66,7 +66,8 @@ subcommand; it writes exactly one JSON document to stdout while logs stay on std
 `call` accepts `--task`, `--callee`, `--context`, `--constraints`, `--lang`, `--voice`,
 `--formal`, `--audio auto|usb|relay`, `--max-seconds`, and `--result-schema FILE.json`.
 `auto` tries the 16 kHz relay and switches the live xAI session and modem audio to USB if no
-relay frames arrive.
+relay frames arrive. When the relay is unavailable, this detection adds up to three seconds of
+silence before the USB path starts.
 
 Exit codes are `0` success, `1` operational/configuration error, `2` usage, `3` modem busy, `4`
 policy denied, and `5` modem missing or not ready. `call` and `calls wait` return `10` for no

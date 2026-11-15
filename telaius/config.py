@@ -57,3 +57,8 @@ def setting(name, default=None, config=None):
     if value is not None:
         return value
     return (config if config is not None else load_config()).get(name, default)
+
+
+def calls_path(config=None):
+    path = Path(setting("calls_dir", "calls", config if config is not None else load_config()))
+    return path if path.is_absolute() else REPO_ROOT / path

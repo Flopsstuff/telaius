@@ -26,10 +26,12 @@ import websockets
 
 from telaius import realtime
 from telaius.callstore import CANCEL_FILE, call_dir, save_call, write_spec, write_status
+from telaius.config import load_config
 from telaius.errors import ConfigError
 from telaius.logs import log
 from telaius.modem import IF_AT, IF_PCM, AtChannel, PcmAligner, close_modem, open_modem, open_port
 from telaius.prompts import LANG_HINT, bot_name
+from telaius.policy import from_config
 
 RELAY_RATE = 16000
 GREETING_WAIT = 2.0  # seconds of silence after answer before the bot greets first
@@ -403,6 +405,9 @@ class CallSession:
         return self.record
 
 
-async def run_call(spec, out_root, on_state=None):
+async def run_call(spec, out_root, on_state=None, policy=None):
     """One foreground call in a fresh directory under `out_root`. Returns the record."""
+    spec, clipped = (policy or from_config(load_config(), out_root)).apply_call(spec)
+    if clipped:
+        log.warning("max_seconds limited to %g by policy", spec.max_seconds)
     return await CallSession(spec, call_dir(spec.callee, spec.number, out_root), on_state=on_state).run()

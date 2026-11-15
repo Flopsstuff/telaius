@@ -1,5 +1,7 @@
 """Outbound-call safety policy shared by the CLI and future integrations."""
 import datetime as dt
+import dataclasses
+import os
 import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,10 +11,10 @@ from telaius.errors import ConfigError, PolicyDenied
 
 def normalize_number(number):
     value = re.sub(r"[\s-]", "", number or "")
-    if value.startswith("00"):
-        value = "+" + value[2:]
-    elif re.fullmatch(r"\d{9}", value):
+    if re.fullmatch(r"\d{9}", value):
         value = "+48" + value
+    elif value.startswith("00"):
+        value = "+" + value[2:]
     if not re.fullmatch(r"\+\d{7,15}", value):
         raise ConfigError("phone number must be E.164, 00-prefixed, or 9 Polish digits")
     return value
@@ -28,7 +30,30 @@ def _clock(value):
 
 def in_quiet_hours(now, start="22:00", end="09:00"):
     current, start, end = now.timetz().replace(tzinfo=None), _clock(start), _clock(end)
+    if start == end:
+        return False
     return start <= current < end if start < end else current >= start or current < end
+
+
+def from_config(config=None, calls_dir=None, environ=None):
+    """Build policy with environment values overriding TOML policy values."""
+    cfg = dict((config or {}).get("policy", {}))
+    env = os.environ if environ is None else environ
+    if env.get("TELAIUS_ALLOWLIST"):
+        cfg["allowlist"] = [item.strip() for item in env["TELAIUS_ALLOWLIST"].split(",")]
+    if env.get("TELAIUS_ALLOW_ANY"):
+        cfg["allow_any"] = env["TELAIUS_ALLOW_ANY"].lower() in ("1", "true", "yes")
+    for key in ("max_seconds", "calls_per_day", "sms_per_day", "timezone"):
+        env_name = f"TELAIUS_POLICY_{key.upper()}"
+        if env.get(env_name):
+            cfg[key] = env[env_name]
+    quiet = dict(cfg.get("quiet_hours", {}))
+    if env.get("TELAIUS_POLICY_QUIET_START"):
+        quiet["start"] = env["TELAIUS_POLICY_QUIET_START"]
+    if env.get("TELAIUS_POLICY_QUIET_END"):
+        quiet["end"] = env["TELAIUS_POLICY_QUIET_END"]
+    cfg["quiet_hours"] = quiet
+    return Policy(cfg, calls_dir)
 
 
 class Policy:
@@ -38,6 +63,7 @@ class Policy:
         self.allowlist = {normalize_number(n) for n in cfg.get("allowlist", [])}
         self.max_seconds = int(cfg.get("max_seconds", 300))
         self.calls_per_day = int(cfg.get("calls_per_day", 20))
+        self.sms_per_day = int(cfg.get("sms_per_day", 20))
         self.timezone = cfg.get("timezone", "Europe/Warsaw")
         quiet = cfg.get("quiet_hours", {})
         self.quiet_start = quiet.get("start", "22:00")
@@ -55,3 +81,7 @@ class Policy:
         if self.calls_dir.exists() and sum(p.name.startswith(prefix) for p in self.calls_dir.iterdir()) >= self.calls_per_day:
             raise PolicyDenied(f"daily call limit ({self.calls_per_day}) reached")
         return number, min(float(max_seconds), self.max_seconds), float(max_seconds) > self.max_seconds
+
+    def apply_call(self, spec, now=None):
+        number, max_seconds, clipped = self.check_call(spec.number, spec.max_seconds, now)
+        return dataclasses.replace(spec, number=number, max_seconds=max_seconds), clipped

@@ -14,7 +14,7 @@ from telaius import worker
 from telaius.callspec import CallSpec
 from telaius.callstore import (call_dir, read_spec, read_status, request_cancel,
                                write_spec, write_status)
-from telaius.errors import CallNotFound, ConfigError, ModemBusy
+from telaius.errors import CallNotFound, ConfigError, ModemBusy, PolicyDenied
 from telaius.lock import ModemLock, lock_path
 from telaius.session import stamp
 from tests.fakes import FakeAtPort, FakeModem, FakeXai, patch_modem, patch_xai
@@ -30,7 +30,10 @@ class TmpRootTests(unittest.TestCase):
         self.tmp = Path(tmp.name)
         self.root = self.tmp / "calls"
         self.root.mkdir()
-        patcher = mock.patch.dict(os.environ, {"TELAIUS_RUNTIME_DIR": str(self.tmp / "run")})
+        patcher = mock.patch.dict(os.environ, {"TELAIUS_RUNTIME_DIR": str(self.tmp / "run"),
+                                               "TELAIUS_ALLOW_ANY": "true",
+                                               "TELAIUS_POLICY_QUIET_START": "00:00",
+                                               "TELAIUS_POLICY_QUIET_END": "00:00"})
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -205,6 +208,12 @@ class WorkerTests(TmpRootTests):
             with self.assertRaises(ModemBusy):
                 worker.start_call(self.spec(), self.root)
         self.assertEqual(list(self.root.iterdir()), [], "no call was created")
+
+    def test_start_call_enforces_policy_outside_the_cli(self):
+        with mock.patch.dict(os.environ, {"TELAIUS_ALLOW_ANY": "", "TELAIUS_ALLOWLIST": ""}):
+            with self.assertRaises(PolicyDenied):
+                worker.start_call(self.spec(), self.root)
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_the_worker_runs_the_call_it_is_given(self):
         patch_modem(self, FakeModem())

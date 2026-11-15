@@ -10,7 +10,7 @@ from unittest import mock
 
 from telaius.callspec import CallSpec
 from telaius.callstore import call_dir, read_status, request_cancel
-from telaius.errors import XaiError
+from telaius.errors import PolicyDenied, XaiError
 from telaius.session import CallSession, run_call
 from tests.fakes import FakeAtPort, FakeModem, FakePcmPort, FakeXai, patch_modem, patch_xai
 
@@ -23,7 +23,10 @@ class CallBase(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name) / "calls"
         self.root.mkdir()
-        self.patch_env({"TELAIUS_RUNTIME_DIR": str(Path(tmp.name) / "run")})
+        self.patch_env({"TELAIUS_RUNTIME_DIR": str(Path(tmp.name) / "run"),
+                        "TELAIUS_ALLOW_ANY": "true",
+                        "TELAIUS_POLICY_QUIET_START": "00:00",
+                        "TELAIUS_POLICY_QUIET_END": "00:00"})
         # the real waits are tuned for a human on the phone; tests do not have the time
         for name, value in (("GREETING_WAIT", 0.05), ("RELAY_AUDIO_WAIT", 0.5),
                             ("ANSWER_WAIT", 1.0), ("POLL", 0.05)):
@@ -224,6 +227,12 @@ class CancelTests(CallBase):
 
 
 class FailedCallTests(CallBase):
+    async def test_foreground_entry_enforces_policy_outside_the_cli(self):
+        with mock.patch.dict(os.environ, {"TELAIUS_ALLOW_ANY": "", "TELAIUS_ALLOWLIST": ""}):
+            with self.assertRaises(PolicyDenied):
+                await run_call(self.spec(), self.root)
+        self.assertEqual(list(self.root.iterdir()), [])
+
     async def test_an_unusable_xai_session_fails_the_call(self):
         patch_modem(self, FakeModem())
         patch_xai(self, FakeXai(configure_error=True))

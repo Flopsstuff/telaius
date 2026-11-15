@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import io
 import json
-import os
 import subprocess
 import sys
 import time
@@ -12,12 +11,12 @@ from pathlib import Path
 
 from telaius import at as at_module, qmi as qmi_module
 from telaius.callspec import AUDIO_PATHS, CallSpec
-from telaius.callstore import CALLS_DIR, find_call, list_calls, read_status, request_cancel
-from telaius.config import REPO_ROOT, load_config, setting
+from telaius.callstore import find_call, list_calls, read_status, request_cancel
+from telaius.config import REPO_ROOT, calls_path, load_config, setting
 from telaius.errors import ModemBusy, ModemNotFound, ModemNotReady, PolicyDenied, TelaiusError
 from telaius.lock import ModemLock
 from telaius.logs import setup
-from telaius.policy import Policy
+from telaius.policy import from_config
 from telaius.prompts import LANGS
 from telaius.realtime import probe
 from telaius.session import run_call
@@ -64,26 +63,13 @@ def emit(value, as_json=False):
         print(json.dumps(value, ensure_ascii=False, indent=2))
 
 
-def _config_spec(a, cfg, calls_dir):
+def _config_spec(a, cfg):
     defaults = cfg.get("call", cfg)
     raw_max = a.max_seconds if a.max_seconds is not None else float(setting("max_seconds", defaults.get("max_seconds", 120), cfg))
-    policy_config = dict(cfg.get("policy", {}))
-    if os.environ.get("TELAIUS_ALLOWLIST"):
-        policy_config["allowlist"] = [item.strip() for item in os.environ["TELAIUS_ALLOWLIST"].split(",")]
-    if os.environ.get("TELAIUS_ALLOW_ANY"):
-        policy_config["allow_any"] = os.environ["TELAIUS_ALLOW_ANY"].lower() in ("1", "true", "yes")
-    for key in ("max_seconds", "calls_per_day", "sms_per_day", "timezone"):
-        env_name = f"TELAIUS_{key.upper()}"
-        if os.environ.get(env_name):
-            policy_config[key] = os.environ[env_name]
-    policy = Policy(policy_config, calls_dir)
-    number, max_seconds, clipped = policy.check_call(a.number, raw_max)
-    if clipped:
-        print(f"warning: max_seconds limited to {max_seconds:g}", file=sys.stderr)
     schema = json.loads(a.result_schema.read_text()) if a.result_schema else None
-    return CallSpec(number=number, lang=a.lang or setting("lang", defaults.get("lang", "ru"), cfg),
+    return CallSpec(number=a.number, lang=a.lang or setting("lang", defaults.get("lang", "ru"), cfg),
                     voice=a.voice or setting("voice", defaults.get("voice", "rex"), cfg),
-                    audio=a.audio or setting("audio", defaults.get("audio", "auto"), cfg), max_seconds=max_seconds,
+                    audio=a.audio or setting("audio", defaults.get("audio", "auto"), cfg), max_seconds=raw_max,
                     task=a.task, callee=a.callee, context=a.context, constraints=a.constraints,
                     formal=a.formal, result_schema=schema)
 
@@ -101,13 +87,14 @@ def _wait(directory, timeout=None):
 
 
 def run(a):
-    cfg = load_config(); calls_dir = Path(setting("calls_dir", CALLS_DIR, cfg))
+    cfg = load_config(); calls_dir = calls_path(cfg)
     if a.command == "status": return modem_status()
     if a.command == "call":
-        spec = _config_spec(a, cfg, calls_dir)
-        if a.detach: return {"call_id": start_call(spec, calls_dir).name, "state": "created"}
+        spec = _config_spec(a, cfg)
+        policy = from_config(cfg, calls_dir)
+        if a.detach: return {"call_id": start_call(spec, calls_dir, policy).name, "state": "created"}
         with ModemLock(f"call to {spec.callee or 'number'}"):
-            return asyncio.run(run_call(spec, calls_dir))
+            return asyncio.run(run_call(spec, calls_dir, policy=policy))
     if a.command == "calls":
         if a.calls_command == "list": return list_calls(calls_dir, a.limit)
         directory = find_call(a.id, calls_dir)
@@ -143,8 +130,12 @@ def main(argv=None):
     try:
         result = run(a)
         if result is not None: emit(result, a.json_output)
-        if a.command in ("call", "calls") and isinstance(result, dict) and result.get("final_status") in ("no_answer", "busy"):
-            return 10
+        waits_for_call = a.command == "call" or (a.command == "calls" and a.calls_command == "wait")
+        if waits_for_call and isinstance(result, dict):
+            if result.get("final_status") in ("no_answer", "busy"):
+                return 10
+            if result.get("final_status") == "failed":
+                return 1
         return 0
     except TelaiusError as error:
         emit({"ok": False, "error": {"code": error.code, "message": str(error)}} if a.json_output else f"{error.code}: {error}", a.json_output)
