@@ -11,6 +11,7 @@ from telaius import cli
 from telaius.config import REPO_ROOT, calls_path, load_config, setting
 from telaius.errors import PolicyDenied
 from telaius.policy import Policy, from_config, in_quiet_hours, normalize_number
+from telaius.status import _identity
 
 
 class PolicyTests(unittest.TestCase):
@@ -69,6 +70,14 @@ class ConfigTests(unittest.TestCase):
 
     def test_relative_calls_directory_is_under_the_repository(self):
         self.assertEqual(calls_path({"calls_dir": "elsewhere"}), REPO_ROOT / "elsewhere")
+
+
+class StatusTests(unittest.TestCase):
+    def test_identity_skips_unsolicited_result_codes(self):
+        reply = ('+CMTI: "SM",1\r\nManufacturer: SIMCOM INCORPORATED\r\n+CMTI: "SM",2\r\n'
+                 "Model: SIMCOM_SIM7600G-H\r\nRevision: LE20B06\r\nIMEI: 000000000000000\r\n"
+                 "+GCAP: +CGSM\r\n\r\nOK\r\n")
+        self.assertEqual(_identity(reply), {"manufacturer": "SIMCOM INCORPORATED", "model": "SIMCOM_SIM7600G-H"})
 
 
 class CliTests(unittest.TestCase):

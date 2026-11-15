@@ -21,9 +21,10 @@ def _value(reply, prefix):
 
 
 def _identity(reply):
+    # Pending URCs such as +CMTI arrive interleaved with the ATI reply.
     values = [line.strip() for line in reply.splitlines()
-              if line.strip() and line.strip() != "OK" and not line.startswith(("IMEI:", "+GCAP:"))]
-    return {"manufacturer": values[0] if values else None,
+              if line.strip() and line.strip() != "OK" and not line.strip().startswith(("IMEI:", "+"))]
+    return {"manufacturer": values[0].removeprefix("Manufacturer: ") if values else None,
             "model": values[1].removeprefix("Model: ") if len(values) > 1 else None}
 
 
