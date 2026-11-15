@@ -4,6 +4,10 @@ A detached call (`telaius call --detach`, later the MCP `make_call`) runs here: 
 the call directory, starts this worker and returns the call id at once, and the call survives the
 caller exiting. SIGTERM/SIGINT cancel the call the polite way, through CallSession.cancel().
 
+The worker is started through a short-lived launcher, so it is nobody's child by the time the
+call runs: agent runners end a run by killing its process tree by parent pid, which a new session
+alone does not escape. The orphan is reaped by init (or the user's systemd), not by the caller.
+
 The worker takes the modem lock itself — an flock cannot be handed to another process — so a call
 that loses the race to a foreground call ends as failed in its own status.json.
 """
@@ -21,6 +25,11 @@ from telaius.logs import log, setup
 from telaius.policy import from_config
 from telaius.session import CallSession, stamp
 
+WORKER = [sys.executable, "-m", "telaius.worker"]
+# Stdlib only, so the extra process costs little: start the worker, print its pid, exit.
+_LAUNCHER = ("import subprocess, sys; print(subprocess.Popen(sys.argv[1:], stdin=subprocess.DEVNULL, "
+             "stdout=2, stderr=2, start_new_session=True).pid)")
+
 
 def start_call(spec, out_root, policy=None):
     """Start a call in its own process; returns its directory (the name is the call id)."""
@@ -34,16 +43,28 @@ def start_call(spec, out_root, policy=None):
     write_status(directory, {"call_id": directory.name, "state": "created", "pid": None, "elapsed": 0,
                              "started_at": stamp(), "answered_at": None, "ended_at": None,
                              "final_status": None, "end_reason": None, "error": None})
-    with open(directory / LOG_FILE, "a") as out:
-        proc = subprocess.Popen([sys.executable, "-m", "telaius.worker", str(directory)],
-                                stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+    try:
+        pid = _spawn(directory)
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        error = TelaiusError(f"the call worker did not start: {e}")
+        _mark_failed(directory, error)
+        raise error from e
     # Without the pid here, a worker that dies before writing its own status looks queued forever.
     status = read_status(directory)
     if status.get("state") == "created" and status.get("pid") is None:
-        status["pid"] = proc.pid
+        status["pid"] = pid
         write_status(directory, status)
-    log.info("call %s started in the background (pid %d)", directory.name, proc.pid)
+    log.info("call %s started in the background (pid %d)", directory.name, pid)
     return directory
+
+
+def _spawn(directory):
+    """Start the worker for `directory` detached from the caller's process tree; returns its pid."""
+    with open(directory / LOG_FILE, "a") as out:
+        launcher = subprocess.run([sys.executable, "-c", _LAUNCHER, *WORKER, str(directory)],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=out,
+                                  text=True, timeout=30, check=True)
+    return int(launcher.stdout)
 
 
 async def _run(session):

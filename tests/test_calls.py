@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,7 @@ from telaius import worker
 from telaius.callspec import CallSpec
 from telaius.callstore import (call_dir, pid_alive, read_spec, read_status, request_cancel,
                                write_spec, write_status)
-from telaius.errors import CallNotFound, ConfigError, ModemBusy, PolicyDenied
+from telaius.errors import CallNotFound, ConfigError, ModemBusy, PolicyDenied, TelaiusError
 from telaius.lock import ModemLock, lock_path
 from telaius.session import stamp
 from tests.fakes import FakeAtPort, FakeModem, FakeXai, patch_modem, patch_xai
@@ -244,27 +245,33 @@ class WorkerTests(TmpRootTests):
 
     def detached(self):
         """A call directory prepared by start_call, without a real worker process."""
-        with mock.patch("telaius.worker.subprocess.Popen") as popen:
-            popen.return_value.pid = os.getpid()
+        with mock.patch("telaius.worker._spawn", return_value=os.getpid()) as spawn:
             directory = worker.start_call(self.spec(), self.root)
-        return directory, popen
+        return directory, spawn
 
     def test_start_call_returns_at_once_with_the_call_prepared(self):
-        directory, popen = self.detached()
+        with mock.patch("telaius.worker.subprocess.run") as run:
+            run.return_value.stdout = f"{os.getpid()}\n"
+            directory = worker.start_call(self.spec(), self.root)
 
         self.assertEqual(read_spec(directory).number, NUMBER)
         status = read_status(directory)
         self.assertEqual((status["state"], status["call_id"]), ("created", directory.name))
         self.assertEqual(status["pid"], os.getpid())
-        command = popen.call_args[0][0]
-        self.assertEqual(command[:2], [sys.executable, "-m"])
-        self.assertEqual(command[2:], ["telaius.worker", str(directory)])
-        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        command = run.call_args[0][0]
+        self.assertEqual(command[:3], [sys.executable, "-c", worker._LAUNCHER])
+        self.assertEqual(command[3:], [sys.executable, "-m", "telaius.worker", str(directory)])
+
+    def test_a_worker_that_does_not_start_fails_its_call(self):
+        with mock.patch("telaius.worker.WORKER", [str(self.tmp / "missing")]):
+            with self.assertRaises(TelaiusError):
+                worker.start_call(self.spec(), self.root)
+
+        status = read_status(next(self.root.iterdir()))
+        self.assertEqual((status["state"], status["final_status"]), ("failed", "failed"))
 
     def test_a_worker_that_dies_before_its_session_starts_reads_as_dead(self):
-        popen = subprocess.Popen
-        with mock.patch("telaius.worker.subprocess.Popen",
-                        lambda _, **kw: popen([sys.executable, "-c", "raise SystemExit(1)"], **kw)):
+        with mock.patch("telaius.worker.WORKER", [sys.executable, "-c", "raise SystemExit(1)"]):
             directory = worker.start_call(self.spec(), self.root)
 
         deadline = time.monotonic() + 10
@@ -332,6 +339,86 @@ class WorkerTests(TmpRootTests):
 
         self.assertFalse([c for c in modem.at.commands if c.startswith("ATD")])
         self.assertEqual(read_status(directory)["final_status"], "cancelled")
+
+
+# Runs in the worker process: the real worker module with the modem and xAI faked.
+FAKE_WORKER = """
+import sys
+from unittest import mock
+from telaius import worker
+from tests.fakes import FakeAtPort, FakeModem, FakeXai, patch_modem, patch_xai
+class Test:
+    addCleanup = staticmethod(lambda *args: None)
+for name, value in (("GREETING_WAIT", 0.05), ("RELAY_AUDIO_WAIT", 0.5), ("ANSWER_WAIT", 1.0), ("POLL", 0.05)):
+    mock.patch(f"telaius.session.{name}", value).start()
+patch_modem(Test, FakeModem(FakeAtPort(hangup_after=float(sys.argv[1]))))
+patch_xai(Test, FakeXai(goodbye=False))
+sys.exit(worker.run_dir(sys.argv[-1]))
+"""
+
+# Runs in the caller process: starts a background call and stays alive until it is killed.
+CALLER = """
+import sys, time
+from telaius import worker
+from telaius.callspec import CallSpec
+worker.WORKER = [sys.executable, "-c", sys.argv[2], "3"]
+spec = CallSpec(number="+48000000000", callee="Tester", task="Check the worker")
+print(worker.start_call(spec, sys.argv[1]), flush=True)
+time.sleep(600)
+"""
+
+
+def descendants(pid):
+    found = []
+    for child in subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout.split():
+        found += [int(child), *descendants(int(child))]
+    return found
+
+
+class DetachedWorkerTests(TmpRootTests):
+    def test_a_call_survives_its_caller_and_the_callers_process_tree(self):
+        caller = subprocess.Popen([sys.executable, "-c", CALLER, str(self.root), FAKE_WORKER],
+                                  cwd=REPO_ROOT, env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
+                                  stdout=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(caller.wait)
+        directory = Path(caller.stdout.readline().strip())
+        caller.stdout.close()
+        pid = read_status(directory)["pid"]
+        self.addCleanup(lambda: pid_alive(pid) and os.kill(pid, signal.SIGKILL))
+        self.wait_for(directory, lambda s: s["state"] == "in_call")
+
+        tree = [caller.pid, *descendants(caller.pid)]
+        os.killpg(caller.pid, signal.SIGKILL)
+        for victim in tree:
+            try:
+                os.kill(victim, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        self.assertNotIn(pid, tree, "the worker is not in the caller's tree")
+        status = self.wait_for(directory, lambda s: s["state"] in ("ended", "failed"))
+        self.assertEqual((status["state"], status["final_status"]), ("ended", "completed"))
+        self.assertEqual(json.loads((directory / "result.json").read_text())["final_status"], "completed")
+
+    def test_end_call_still_signals_a_detached_worker(self):
+        with mock.patch("telaius.worker.WORKER", [sys.executable, "-c", FAKE_WORKER, "60"]), \
+                mock.patch.dict(os.environ, {"PYTHONPATH": str(REPO_ROOT)}):
+            directory = worker.start_call(self.spec(), self.root)
+        self.wait_for(directory, lambda s: s["state"] == "in_call")
+
+        request_cancel(directory, "cancelled: test")
+
+        status = self.wait_for(directory, lambda s: s["state"] in ("ended", "failed"))
+        self.assertEqual((status["final_status"], status["end_reason"]), ("cancelled", "cancelled: SIGTERM"), "the signal reached the worker")
+
+    def wait_for(self, directory, done, timeout=30):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = read_status(directory)
+            if done(status):
+                return status
+            time.sleep(0.05)
+        self.fail(f"call stuck at {read_status(directory)}; log: {(directory / 'call.log').read_text()}")
 
 
 class StampTests(unittest.TestCase):
