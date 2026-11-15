@@ -27,8 +27,8 @@ def _check_types(schema, where="result_schema"):
     if not isinstance(schema, dict):
         raise ConfigError(f"{where} must be a JSON object")
     kinds = schema.get("type", [])
-    for kind in [kinds] if isinstance(kinds, str) else kinds:
-        if kind not in SCHEMA_TYPES:
+    for kind in kinds if isinstance(kinds, list) else [kinds]:
+        if not isinstance(kind, str) or kind not in SCHEMA_TYPES:
             raise ConfigError(f"{where}: unknown type {kind!r}")
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
@@ -38,7 +38,8 @@ def _check_types(schema, where="result_schema"):
     if "items" in schema:
         _check_types(schema["items"], f"{where}.items")
     required = schema.get("required", [])
-    if not isinstance(required, list) or not set(required) <= set(properties):
+    if (not isinstance(required, list) or not all(isinstance(name, str) for name in required)
+            or not set(required) <= set(properties)):
         raise ConfigError(f"{where}.required must list names from its properties")
 
 

@@ -51,7 +51,10 @@ class ResultSchemaTests(unittest.TestCase):
             deep = {"type": "object", "properties": {"x": deep}}
         for bad in ({"type": "string"}, [], {"type": "object", "properties": {"x": {"type": "date"}}},
                     {"type": "object", "properties": {"x": {"type": "string", "description": "y" * 5000}}},
-                    {"type": "object", "required": ["missing"]}, deep):
+                    {"type": "object", "required": ["missing"]}, deep,
+                    {"type": "object", "properties": {"x": {"type": 5}}},
+                    {"type": "object", "properties": {"x": {"type": [{}]}}},
+                    {"type": "object", "properties": {"x": {}}, "required": [["x"]]}):
             with self.subTest(bad=str(bad)[:60]):
                 with self.assertRaises(ConfigError):
                     check_result_schema(bad)
