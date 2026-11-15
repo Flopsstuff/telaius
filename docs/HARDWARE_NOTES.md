@@ -78,9 +78,12 @@ See [VOLTE_NOTES.md](VOLTE_NOTES.md) for the full story. In short:
 On 2026-11-15 the SIM7600G-H accepted three outbound PDU-mode tests on T-Mobile PL while
 IMS was registered with full SMS capability: short GSM-7, Polish text with diacritics in
 UCS2, and a four-part concatenated UCS2 message. `AT+CMGS` returned a message reference for
-each of the six submitted parts. Recipient confirmation of complete delivery is pending.
+each of the six submitted parts. The recipient confirmed that all three messages arrived
+complete and replied within about three minutes.
 
 Incoming messages can be listed from the SIM (`SM`) and modem (`ME`) stores and are only
-marked read or deleted by explicit commands. The first live listing found no stored reply,
-so inbound decoding, operator routing (IMS or circuit-switched), and delivery delay remain
-to be confirmed on hardware.
+marked read or deleted by explicit commands. The reply was stored unread in `SM`; both the
+default listing and `--all-storages` decoded its numeric sender, local timestamp with `+01:00`
+offset, and GSM-7 text correctly. A sanitized copy of this modem PDU is a regression vector.
+The modem reported full IMS SMS service throughout the test and no fallback was observed,
+although `AT+CMGS` does not expose the selected bearer directly.

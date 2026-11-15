@@ -61,6 +61,11 @@ class SubmitTests(unittest.TestCase):
 
 
 class DeliverTests(unittest.TestCase):
+    def test_sanitized_real_sim7600_pdu(self):
+        message = decode_deliver("07918406026010F0040B918400000000F000006211513125104002CF35")
+        self.assertEqual((message["sender"], message["text"], message["encoding"]),
+                         ("+48000000000", "Ok", "gsm7"))
+
     def test_numeric_and_alphanumeric_sender(self):
         numeric = decode_deliver(deliver_pdu("+48000000000", "Hello {}"))
         alpha = decode_deliver(deliver_pdu("INFO", "Service", alphanumeric=True))
