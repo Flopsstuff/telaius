@@ -68,10 +68,44 @@ relay/install.sh
 .venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --audio relay \
     --task "Записаться на стрижку в субботу после 12:00" \
     --callee "барбершоп Brzytwa" --context "Клиент: Алексей, обычная мужская стрижка"
+
+# the same call in its own process: prints the call directory and returns at once
+.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --audio relay --detach --task "…"
 ```
 
-Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
+Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
+
+### Following and ending a call while it runs
+
+The call directory exists from the moment the call starts and holds `spec.json` (what was asked) and `status.json`, rewritten on every state change:
+
+```json
+{ "call_id": "2026-11-15_12-30-00_masha", "state": "in_call", "final_status": null,
+  "end_reason": null, "pid": 31337, "started_at": "…", "answered_at": "…", "elapsed": 42.5 }
+```
+
+`state` runs `created → dialing → ringing → in_call → reporting → ended`, or `failed` if the call never happened; `final_status` is `completed`, `no_answer`, `busy`, `cancelled` or `failed`. A detached call also writes `call.log`. If the worker process dies, readers see `failed` with `end_reason: "error: worker died"`.
+
+To end a call early, write the `cancel` flag file into its directory (any process can) or send `SIGTERM` to the worker. Either way the modem hangs up, the bot is asked for a result and the record is saved as usual:
+
+```bash
+echo "cancelled: owner" > calls/2026-11-15_12-30-00_masha/cancel
+```
+
+One modem means one operation at a time: a call, `telaius.at`, `telaius.calltest` and `telaius.qmi` take an exclusive lock (`$XDG_RUNTIME_DIR/telaius/modem.lock`, override with `TELAIUS_RUNTIME_DIR`), so a second one fails with `modem_busy: the modem is held by …` instead of disturbing the live call. The lock disappears with its holder, however it dies.
+
+Logs go to stderr; stdout stays free for machine-readable output. `XAI_API_KEY` is read from the environment or from `.env` in the repository root — `TELAIUS_ENV_FILE` points at another file, which is what a separate worktree needs.
 
 Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template and rules, recording facts, voice tags, gender lines), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя), voice genders, transcription hints and tool descriptions. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
 
 Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordings/`; both are gitignored. Only call numbers whose owners agreed to be called by an AI assistant.
+
+## Tests
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```
+
+No modem and no network needed: whole calls run against a fake modem (AT and PCM ports, so the real
+AT parsing and audio threads are exercised) and a fake xAI Realtime server — answered, unanswered,
+busy, hung up by the callee, cancelled from outside, and a modem that is already in use.
