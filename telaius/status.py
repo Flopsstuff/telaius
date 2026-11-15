@@ -40,7 +40,7 @@ def modem_status():
         dev = open_modem()
         try:
             at = AtChannel(open_port(dev, IF_AT), echo=False)
-            replies = {cmd: at.send(cmd, 0.6) for cmd in ("ATI", "AT+CGMR", "AT+CPIN?", "AT+COPS?", "AT+CPSI?", "AT+CSQ")}
+            replies = {cmd: at.send(cmd) for cmd in ("ATI", "AT+CGMR", "AT+CPIN?", "AT+COPS?", "AT+CPSI?", "AT+CSQ")}
         finally:
             close_modem(dev, [IF_AT])
         qmi = Qmi()

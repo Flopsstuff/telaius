@@ -256,11 +256,12 @@ class AtChannel:
             log.info("AT> %s", cmd)
         self.buf = ""
         self.port.write((cmd + "\r").encode())
-        end = time.time() + wait
-        while time.time() < end:
-            self.poll()
-            lines = self.buf.strip().splitlines()
-            if lines and (lines[-1].strip() in FINAL_RESULTS or "+CME ERROR" in lines[-1]):
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            remaining_ms = max(1, min(100, int((end - time.monotonic()) * 1000)))
+            self.poll(remaining_ms)
+            lines = (line.strip() for line in self.buf.splitlines())
+            if any(line in FINAL_RESULTS or line.startswith("+CME ERROR") for line in lines):
                 break
         return self.buf
 
