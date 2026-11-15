@@ -173,7 +173,13 @@ are not in the repository's `.env` / `telaius.toml`:
 | `list_sms` | `unread_only`, `limit` | `{messages: [...]}`, long messages joined |
 
 Calls are asynchronous: `make_call` starts the background worker (as `telaius call --detach`
-does) and returns; closing the client does not end the call. A second `make_call` while a call
+does) and returns; closing the client does not end the call. The worker is started through a
+launcher that exits at once, so it belongs to neither the client's process group nor its process
+tree: an agent can call `make_call`, end its run (the runner kills what the run started), and
+read the result later with `get_call_result` or `telaius calls show` from a new run. It still
+runs in the caller's cgroup, so stopping the whole service that hosts the agent (for example
+`systemctl --user stop` of its unit) does end the call; the record then reads `cancelled` or,
+on SIGKILL, `failed` with `worker died`. A second `make_call` while a call
 runs is `modem_busy`. Failures are MCP tool errors whose text starts with a code —
 `modem_busy`, `modem_not_ready`, `policy_denied`, `call_not_found` or `invalid_input` — followed
 by a readable reason. Logs go to stderr; stdout carries only the protocol.

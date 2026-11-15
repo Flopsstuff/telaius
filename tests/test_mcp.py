@@ -7,7 +7,6 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 try:
@@ -96,23 +95,17 @@ class McpServerTests(unittest.TestCase):
         self.server = mcp_server.server
 
     def _run_workers_in_threads(self):
-        """make_call starts `python -m telaius.worker DIR`; here the same run_dir runs in a thread,
+        """make_call starts the worker process for DIR; here the same run_dir runs in a thread,
         so it sees the fakes. Signal handlers belong to the main thread, so the session runs bare."""
-        import subprocess
-
         from telaius import worker
 
-        real_popen = subprocess.Popen
-
-        def popen(command, **kwargs):
-            if command[1:3] != ["-m", "telaius.worker"]:  # ffmpeg, adb
-                return real_popen(command, **kwargs)
-            thread = threading.Thread(target=worker.run_dir, args=(command[-1],))
+        def spawn(directory):
+            thread = threading.Thread(target=worker.run_dir, args=(directory,))
             self.workers.append(thread)
             thread.start()
-            return SimpleNamespace(pid=os.getpid())
+            return os.getpid()
 
-        for target, value in (("telaius.worker.subprocess.Popen", popen),
+        for target, value in (("telaius.worker._spawn", spawn),
                               ("telaius.worker._run", lambda session: session.run())):
             patcher = mock.patch(target, value)
             patcher.start()
