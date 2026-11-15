@@ -14,10 +14,12 @@ import time
 class FakeAtPort:
     """Answers AT commands like the SIM7600 does, including the call progress codes."""
 
-    def __init__(self, answer="VOICE CALL: BEGIN", answer_delay=0.1, hangup_after=None, rate=8000):
+    def __init__(self, answer="VOICE CALL: BEGIN", answer_delay=0.1, hangup_after=None, rate=8000, inbox=()):
         self.answer, self.answer_delay = answer, answer_delay
         self.hangup_after = hangup_after  # seconds after the answer: the callee hangs up
         self.rate = rate
+        self.inbox = list(inbox)  # SMS on the SIM: (index, deliver PDU)
+        self.sms_refs = 0
         self.commands = []
         self._out = bytearray()
         self._due = []  # (monotonic deadline, text)
@@ -34,7 +36,18 @@ class FakeAtPort:
     def write(self, data, timeout_ms=1000):
         cmd = data.decode(errors="replace").strip()
         self.commands.append(cmd)
-        if cmd.startswith("AT+CPCMFRM?"):
+        if data.endswith(b"\x1a"):
+            self.sms_refs += 1
+            self._reply(f"+CMGS: {self.sms_refs}\r\nOK")
+        elif cmd.startswith("AT+CMGS="):
+            with self._lock:
+                self._out.extend(b"\r\n> ")
+        elif cmd.startswith("AT+CPMS?"):
+            self._reply(f'+CPMS: "SM",{len(self.inbox)},30,"SM",{len(self.inbox)},30,"SM",{len(self.inbox)},30\r\nOK')
+        elif cmd.startswith("AT+CMGL="):
+            listed = "".join(f"+CMGL: {i},0,,{len(pdu) // 2 - 1}\r\n{pdu}\r\n" for i, pdu in self.inbox)
+            self._reply(listed + "OK")
+        elif cmd.startswith("AT+CPCMFRM?"):
             self._reply(f"+CPCMFRM: {1 if self.rate == 16000 else 0}\r\nOK")
         elif cmd.startswith("AT+CPSI?"):
             self._reply("+CPSI: LTE,Online,260-06,0x1234,123456,100,EUTRAN-BAND3\r\nOK")
@@ -96,18 +109,19 @@ class FakeModem:
         self.closed = False
 
 
-def patch_modem(test, modem):
-    """Point the session's modem calls at `modem` for the duration of `test`."""
+def patch_modem(test, modem, modules=("telaius.session",)):
+    """Point the modem calls of `modules` (calls; add telaius.sms for SMS) at `modem` for `test`."""
     from unittest import mock
 
     from telaius.modem import IF_AT
 
-    for name, value in (("open_modem", lambda: modem),
-                        ("open_port", lambda dev, ifnum: dev.at if ifnum == IF_AT else dev.pcm),
-                        ("close_modem", lambda dev, ifnums: setattr(dev, "closed", True))):
-        patcher = mock.patch(f"telaius.session.{name}", value)
-        patcher.start()
-        test.addCleanup(patcher.stop)
+    for module in modules:
+        for name, value in (("open_modem", lambda: modem),
+                            ("open_port", lambda dev, ifnum: dev.at if ifnum == IF_AT else dev.pcm),
+                            ("close_modem", lambda dev, ifnums: setattr(dev, "closed", True))):
+            patcher = mock.patch(f"{module}.{name}", value)
+            patcher.start()
+            test.addCleanup(patcher.stop)
     return modem
 
 
@@ -121,9 +135,10 @@ class FakeXai:
     AUDIO_MS = 200
 
     def __init__(self, rate=16000, goodbye=True, outcome="done", summary="Записал",
-                 configure_error=False):
+                 configure_error=False, data=None, unresolved=()):
         self.rate, self.goodbye = rate, goodbye
         self.outcome, self.summary = outcome, summary
+        self.data, self.unresolved = data, list(unresolved)
         self.configure_error = configure_error
         self.sent = []
         self.turns = 0
@@ -180,9 +195,11 @@ class FakeXai:
                          "item_id": f"bot-{self.turns}", "transcript": text})
 
     async def _tool(self, name, outcome, summary):
+        args = {"outcome": outcome, "summary": summary, "unresolved": self.unresolved}
+        if self.data is not None:
+            args["data"] = self.data
         await self._put({"type": "response.function_call_arguments.done", "name": name,
-                         "call_id": f"call-{name}",
-                         "arguments": json.dumps({"outcome": outcome, "summary": summary})})
+                         "call_id": f"call-{name}", "arguments": json.dumps(args)})
 
 
 def patch_xai(test, xai):

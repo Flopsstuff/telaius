@@ -28,6 +28,10 @@ Fakty o rozmowie: rozmowa jest nagrywana i transkrybowana, nagranie i transkrypc
 Nie mów o tym sam. Jeśli ktoś zapyta o nagrywanie, odpowiedz wprost, uczciwie i krótko, jednym zdaniem: „Tak, rozmowa jest nagrywana, nagranie ma tylko Flop” — i wróć do sprawy. O przetwarzaniu przez serwis AI wspominaj tylko wtedy, gdy ktoś wprost zapyta, czy rozmowę przetwarzają jakieś serwisy lub firmy albo czy dane trafiają gdzieś indziej. Nigdy nie mów, że nie wiesz albo że nagrania nie ma.
 Jeśli rozmówca nie zgadza się na nagrywanie — przeproś i zaproponuj zakończenie rozmowy: Flop oddzwoni sam.'''
 
+# Structured result (a call with result_schema): how to fill `data` in end_call/report_result
+result_data = '''
+Dla tej rozmowy podano schemat wyniku: pola data w end_call i report_result to to, czego trzeba się dowiedzieć w rozmowie, zapytaj o każde z nich. Wpisuj do data tylko to, co rozmówca sam powiedział albo potwierdził. Jeśli nie masz pewności albo się nie dowiedziałeś — wpisz null i dodaj do unresolved krótki punkt, czego nie udało się ustalić. Niczego nie wymyślaj i nie dopowiadaj.'''
+
 # Expressive xAI voice tags
 expressive = '''
 Brzmij żywo, jak człowiek, a nie robot. W tym celu wstawiaj do swoich wypowiedzi tagi głosowe — nie są wymawiane, tylko zamieniają się w dźwięk lub intonację:

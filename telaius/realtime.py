@@ -15,7 +15,7 @@ import websockets
 from telaius.config import api_key
 from telaius.errors import XaiError
 from telaius.logs import log
-from telaius.prompts import LANG_HINT, TOOLS
+from telaius.prompts import LANG_HINT, tools as result_tools
 
 XAI_URL = "wss://api.x.ai/v1/realtime?model=grok-voice-latest"
 REPORT_WAIT = 10.0  # seconds to wait for report_result after the call ended
@@ -25,7 +25,7 @@ def connect():
     return websockets.connect(XAI_URL, additional_headers={"Authorization": f"Bearer {api_key()}"})
 
 
-def session_config(rate, instructions, voice, hint, with_transcription):
+def session_config(rate, instructions, voice, hint, with_transcription, tools=None):
     audio_in = {"format": {"type": "audio/pcm", "rate": rate}}
     if with_transcription:
         audio_in["transcription"] = {"model": "grok-transcribe"}
@@ -37,16 +37,16 @@ def session_config(rate, instructions, voice, hint, with_transcription):
             "voice": voice,
             "instructions": instructions,
             "turn_detection": {"type": "server_vad"},
-            "tools": TOOLS,
+            "tools": tools or result_tools(),
             "audio": {"input": audio_in, "output": {"format": {"type": "audio/pcm", "rate": rate}}},
         },
     }
 
 
-async def configure(ws, rate, instructions, voice, hint):
+async def configure(ws, rate, instructions, voice, hint, tools=None):
     # Transcription is optional; if the server rejects it, keep the call working without transcripts.
     for with_tr in (True, False):
-        await ws.send(json.dumps(session_config(rate, instructions, voice, hint, with_tr)))
+        await ws.send(json.dumps(session_config(rate, instructions, voice, hint, with_tr, tools)))
         while True:
             ev = json.loads(await ws.recv())
             if ev["type"] == "session.updated":
@@ -143,7 +143,10 @@ async def handle_events(ws, playback, state, rate):
                 args = json.loads(ev.get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
-            state["result"] = {"outcome": args.get("outcome", "unknown"), "summary": args.get("summary", "")}
+            unresolved = args.get("unresolved")
+            state["result"] = {"outcome": args.get("outcome", "unknown"), "summary": args.get("summary", ""),
+                               "data": args.get("data") if isinstance(args.get("data"), dict) else None,
+                               "unresolved": [str(item) for item in unresolved] if isinstance(unresolved, list) else []}
             log.info("bot %s: outcome=%s summary=%r", ev["name"], state["result"]["outcome"],
                      state["result"]["summary"])
             await ws.send(json.dumps({"type": "conversation.item.create", "item": {
@@ -157,7 +160,7 @@ async def handle_events(ws, playback, state, rate):
 async def request_report(ws, state, reason):
     """The call ended without end_call (callee hung up, time limit, cancelled): ask for the result."""
     note = (f"[system] The phone call has ended ({reason}). Do not say anything. "
-            "Call report_result with the outcome and a short summary for the owner.")
+            "Call report_result with the outcome, a short summary for the owner and what stayed unresolved.")
     await ws.send(json.dumps({"type": "conversation.item.create", "item": {
         "type": "message", "role": "user", "content": [{"type": "input_text", "text": note}]}}))
     await ws.send(json.dumps({"type": "response.create"}))
@@ -173,7 +176,7 @@ async def probe(spec, out_dir, seconds=12):
     """No call: open a session, let the bot greet, save its audio. Checks the key and the prompt."""
     rate = 8000
     async with connect() as ws:
-        await configure(ws, rate, spec.instructions(), spec.voice, LANG_HINT[spec.lang])
+        await configure(ws, rate, spec.instructions(), spec.voice, LANG_HINT[spec.lang], spec.tools())
         playback, state = Playback(), new_state()
         events = asyncio.create_task(handle_events(ws, playback, state, rate))
         await ws.send(json.dumps({"type": "response.create"}))

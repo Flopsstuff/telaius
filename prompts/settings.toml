@@ -37,3 +37,5 @@ end_call = '''Hang up the phone call. Call it only after you have already thanke
 report_result = "Report the result of a call that has already ended. Do not speak."
 outcome = "done = goal reached; partial = part of it; failed = not reached; no_task = free chat without a goal"
 summary = '''2-4 sentences for the owner, always in Russian whatever the call language, written impersonally (not first person, e.g. 'Кафе ответило…'): what was agreed, key facts with exact numbers (dates, times, names, prices) and open questions'''
+data = "What the call had to find out, by the caller's schema: only what the callee said or confirmed; null where unknown"
+unresolved = "What could not be found out or confirmed in the call, one short item each; empty if everything is known"
