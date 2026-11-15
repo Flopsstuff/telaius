@@ -4,7 +4,7 @@
 
 Self-hosted outbound telephone calling for AI agents: a SIMCom SIM7600G-H modem places a real mobile call, and the xAI Realtime voice API holds the conversation. See [docs/TELAIUS_CONCEPT.md](docs/TELAIUS_CONCEPT.md) for the vision, [docs/HARDWARE_NOTES.md](docs/HARDWARE_NOTES.md) for what is proven on real hardware, and [docs/VOLTE_NOTES.md](docs/VOLTE_NOTES.md) for IMS/VoLTE findings.
 
-**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work through the `telaius` CLI, with SMS and Russian/Polish/English calls. M2 (agent integration): the `telaius-mcp` MCP server is implemented; the live end-to-end check is in progress.
+**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work through the `telaius` CLI, with SMS and Russian/Polish/English calls. M2 (agent integration): the `telaius-mcp` MCP server works end to end: an agent on the Pi delegated a live call with `result_schema` and got the filled `data`, and sent an SMS through it.
 
 ## Setup
 
