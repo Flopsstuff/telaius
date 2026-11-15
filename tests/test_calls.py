@@ -12,7 +12,7 @@ from unittest import mock
 
 from telaius import worker
 from telaius.callspec import CallSpec
-from telaius.callstore import (call_dir, read_spec, read_status, request_cancel,
+from telaius.callstore import (call_dir, pid_alive, read_spec, read_status, request_cancel,
                                write_spec, write_status)
 from telaius.errors import CallNotFound, ConfigError, ModemBusy, PolicyDenied
 from telaius.lock import ModemLock, lock_path
@@ -21,6 +21,20 @@ from tests.fakes import FakeAtPort, FakeModem, FakeXai, patch_modem, patch_xai
 
 NUMBER = "+48000000000"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def hide_proc(test):
+    """macOS has no /proc; on Linux that is emulated by failing every read below it."""
+    read_text = Path.read_text
+
+    def without_proc(path, *args, **kwargs):
+        if str(path).startswith("/proc/"):
+            raise FileNotFoundError(path)
+        return read_text(path, *args, **kwargs)
+
+    patcher = mock.patch.object(Path, "read_text", without_proc)
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 
 class TmpRootTests(unittest.TestCase):
@@ -115,6 +129,42 @@ class StatusTests(TmpRootTests):
         self.assertEqual(read_status(directory)["final_status"], "completed")
 
 
+class PidAliveWithoutProcTests(unittest.TestCase):
+    def setUp(self):
+        hide_proc(self)
+
+    def test_a_running_process_is_alive(self):
+        self.assertTrue(pid_alive(os.getpid()))
+
+    def test_an_unreaped_child_is_dead(self):
+        child = subprocess.Popen([sys.executable, "-c", ""])
+        self.addCleanup(child.wait)
+        deadline = time.monotonic() + 10
+        with mock.patch("telaius.callstore.subprocess.run", side_effect=FileNotFoundError("ps")):
+            while pid_alive(child.pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(pid_alive(child.pid))
+
+    def test_someone_elses_zombie_is_dead(self):
+        parent = subprocess.Popen(
+            [sys.executable, "-c", "import os, time\npid = os.fork()\nif pid == 0: os._exit(0)\n"
+                                   "print(pid, flush=True)\ntime.sleep(60)"],
+            stdout=subprocess.PIPE, text=True)
+        self.addCleanup(parent.wait)
+        self.addCleanup(parent.kill)
+        self.addCleanup(parent.stdout.close)
+        zombie = int(parent.stdout.readline())
+
+        deadline = time.monotonic() + 10
+        while pid_alive(zombie) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(pid_alive(zombie))
+
+    def test_without_ps_a_signalable_process_counts_as_alive(self):
+        with mock.patch("telaius.callstore.subprocess.run", side_effect=FileNotFoundError("ps")):
+            self.assertTrue(pid_alive(os.getpid()))
+
+
 class RequestCancelTests(TmpRootTests):
     def test_a_running_call_gets_the_flag_file(self):
         directory = self.new_dir()
@@ -202,6 +252,10 @@ class WorkerTests(TmpRootTests):
         status = read_status(directory)
         self.assertEqual((status["state"], status["final_status"]), ("failed", "failed"))
         self.assertEqual(status["end_reason"], "error: worker died")
+
+    def test_a_dead_worker_reads_as_dead_without_proc(self):
+        hide_proc(self)
+        self.test_a_worker_that_dies_before_its_session_starts_reads_as_dead()
 
     def test_start_call_refuses_while_the_modem_is_busy(self):
         with ModemLock("call 2026-01-01_12-00-00_tester"):
