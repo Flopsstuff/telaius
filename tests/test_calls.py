@@ -351,9 +351,9 @@ class Test:
     addCleanup = staticmethod(lambda *args: None)
 for name, value in (("GREETING_WAIT", 0.05), ("RELAY_AUDIO_WAIT", 0.5), ("ANSWER_WAIT", 1.0), ("POLL", 0.05)):
     mock.patch(f"telaius.session.{name}", value).start()
-patch_modem(Test, FakeModem(FakeAtPort(hangup_after=3)))
+patch_modem(Test, FakeModem(FakeAtPort(hangup_after=float(sys.argv[1]))))
 patch_xai(Test, FakeXai(goodbye=False))
-sys.exit(worker.run_dir(sys.argv[1]))
+sys.exit(worker.run_dir(sys.argv[-1]))
 """
 
 # Runs in the caller process: starts a background call and stays alive until it is killed.
@@ -361,7 +361,7 @@ CALLER = """
 import sys, time
 from telaius import worker
 from telaius.callspec import CallSpec
-worker.WORKER = [sys.executable, "-c", sys.argv[2]]
+worker.WORKER = [sys.executable, "-c", sys.argv[2], "3"]
 spec = CallSpec(number="+48000000000", callee="Tester", task="Check the worker")
 print(worker.start_call(spec, sys.argv[1]), flush=True)
 time.sleep(600)
@@ -399,6 +399,17 @@ class DetachedWorkerTests(TmpRootTests):
         status = self.wait_for(directory, lambda s: s["state"] in ("ended", "failed"))
         self.assertEqual((status["state"], status["final_status"]), ("ended", "completed"))
         self.assertEqual(json.loads((directory / "result.json").read_text())["final_status"], "completed")
+
+    def test_end_call_still_signals_a_detached_worker(self):
+        with mock.patch("telaius.worker.WORKER", [sys.executable, "-c", FAKE_WORKER, "60"]), \
+                mock.patch.dict(os.environ, {"PYTHONPATH": str(REPO_ROOT)}):
+            directory = worker.start_call(self.spec(), self.root)
+        self.wait_for(directory, lambda s: s["state"] == "in_call")
+
+        request_cancel(directory, "cancelled: test")
+
+        status = self.wait_for(directory, lambda s: s["state"] in ("ended", "failed"))
+        self.assertEqual((status["final_status"], status["end_reason"]), ("cancelled", "cancelled: SIGTERM"), "the signal reached the worker")
 
     def wait_for(self, directory, done, timeout=30):
         deadline = time.monotonic() + timeout
