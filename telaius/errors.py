@@ -21,6 +21,14 @@ class ModemBusy(TelaiusError):
     code = "modem_busy"
 
 
+class ModemNotReady(TelaiusError):
+    code = "modem_not_ready"
+
+
+class PolicyDenied(TelaiusError):
+    code = "policy_denied"
+
+
 class XaiError(TelaiusError):
     code = "xai_error"
 

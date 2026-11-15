@@ -3,15 +3,16 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from telaius.callspec import CallSpec
 from telaius.callstore import call_dir, read_status, request_cancel
-from telaius.errors import XaiError
+from telaius.errors import PolicyDenied, XaiError
 from telaius.session import CallSession, run_call
-from tests.fakes import FakeAtPort, FakeModem, FakeXai, patch_modem, patch_xai
+from tests.fakes import FakeAtPort, FakeModem, FakePcmPort, FakeXai, patch_modem, patch_xai
 
 NUMBER = "+48000000000"  # the fake modem never dials anything
 
@@ -22,7 +23,10 @@ class CallBase(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name) / "calls"
         self.root.mkdir()
-        self.patch_env({"TELAIUS_RUNTIME_DIR": str(Path(tmp.name) / "run")})
+        self.patch_env({"TELAIUS_RUNTIME_DIR": str(Path(tmp.name) / "run"),
+                        "TELAIUS_ALLOW_ANY": "true",
+                        "TELAIUS_POLICY_QUIET_START": "00:00",
+                        "TELAIUS_POLICY_QUIET_END": "00:00"})
         # the real waits are tuned for a human on the phone; tests do not have the time
         for name, value in (("GREETING_WAIT", 0.05), ("RELAY_AUDIO_WAIT", 0.5),
                             ("ANSWER_WAIT", 1.0), ("POLL", 0.05)):
@@ -47,6 +51,25 @@ class CallBase(unittest.IsolatedAsyncioTestCase):
 
 
 class AnsweredCallTests(CallBase):
+    async def test_auto_falls_back_to_usb_when_relay_is_silent(self):
+        at = FakeAtPort(rate=8000)
+
+        class RelayThenUsb(FakePcmPort):
+            def read(self, timeout_ms=100):
+                if "AT+CPCMREG=1" not in at.commands:
+                    time.sleep(0.02)
+                    return b""
+                return super().read(timeout_ms)
+
+        modem = patch_modem(self, FakeModem(at=at, pcm=RelayThenUsb(8000)))
+        xai = patch_xai(self, FakeXai(rate=8000))
+
+        record = await run_call(self.spec(audio="auto"), self.root)
+
+        self.assertEqual((record["audio"], record["rate"]), ("usb", 8000))
+        self.assertIn("AT+CPCMREG=1", modem.at.commands)
+        self.assertEqual(sum('"type": "session.update"' in item for item in xai.sent), 2)
+
     async def test_bot_goodbye_saves_record_status_and_files(self):
         modem = patch_modem(self, FakeModem())
         patch_xai(self, FakeXai())
@@ -204,6 +227,12 @@ class CancelTests(CallBase):
 
 
 class FailedCallTests(CallBase):
+    async def test_foreground_entry_enforces_policy_outside_the_cli(self):
+        with mock.patch.dict(os.environ, {"TELAIUS_ALLOW_ANY": "", "TELAIUS_ALLOWLIST": ""}):
+            with self.assertRaises(PolicyDenied):
+                await run_call(self.spec(), self.root)
+        self.assertEqual(list(self.root.iterdir()), [])
+
     async def test_an_unusable_xai_session_fails_the_call(self):
         patch_modem(self, FakeModem())
         patch_xai(self, FakeXai(configure_error=True))

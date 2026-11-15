@@ -4,6 +4,7 @@ TELAIUS_ENV_FILE points at that file; without it .env in the repository root is 
 what a worktree checkout needs (the owner's key lives in the main checkout).
 """
 import os
+import tomllib
 from pathlib import Path
 
 from telaius.errors import ConfigError
@@ -32,3 +33,32 @@ def api_key():
     if not key:
         raise ConfigError(f"XAI_API_KEY is not set (environment or {env_file()})")
     return key
+
+
+def config_file():
+    return Path(os.environ.get("TELAIUS_CONFIG", REPO_ROOT / "telaius.toml"))
+
+
+def load_config():
+    path = config_file()
+    if not path.exists():
+        return {}
+    try:
+        with path.open("rb") as source:
+            return tomllib.load(source)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise ConfigError(f"cannot read {path}: {error}") from error
+
+
+def setting(name, default=None, config=None):
+    """Resolve a simple setting as environment, TOML, then default."""
+    env_name = f"TELAIUS_{name.upper()}"
+    value = env_value(env_name)
+    if value is not None:
+        return value
+    return (config if config is not None else load_config()).get(name, default)
+
+
+def calls_path(config=None):
+    path = Path(setting("calls_dir", "calls", config if config is not None else load_config()))
+    return path if path.is_absolute() else REPO_ROOT / path

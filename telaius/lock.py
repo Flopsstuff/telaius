@@ -70,7 +70,7 @@ class ModemLock:
             self.fd = None
 
     def __enter__(self):
-        return self.acquire()
+        return self if self.fd is not None else self.acquire()
 
     def __exit__(self, *exc):
         self.release()

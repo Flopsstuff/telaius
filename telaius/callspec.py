@@ -8,7 +8,7 @@ import dataclasses
 from telaius.errors import ConfigError
 from telaius.prompts import LANGS, build_instructions
 
-AUDIO_PATHS = ("usb", "relay")
+AUDIO_PATHS = ("auto", "usb", "relay")
 
 
 @dataclasses.dataclass
@@ -19,10 +19,12 @@ class CallSpec:
     task: str = None
     callee: str = None
     context: str = None
+    constraints: str = None
     formal: bool = False
     prompt: str = None  # full system prompt, replaces the built-in one
-    audio: str = "usb"
+    audio: str = "auto"
     max_seconds: float = 120
+    result_schema: dict = None
 
     def __post_init__(self):
         if self.lang not in LANGS:

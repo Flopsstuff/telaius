@@ -1,6 +1,7 @@
 # Private notes and secrets
 private/
 .env
+telaius.toml
 
 # Calls (recordings, transcripts, results) and scratch audio
 calls/
