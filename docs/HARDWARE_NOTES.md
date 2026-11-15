@@ -72,3 +72,21 @@ See [VOLTE_NOTES.md](VOLTE_NOTES.md) for the full story. In short:
 - Raspberry Pi kernel-device control, QMI and a relay call are tested; long-term USB power margin is still unproven (the board can draw up to ~2 A peaks, so consider the 5–12 V terminal input).
 - No graceful wrap-up before the max call duration yet; the call is cut abruptly.
 - Callee name/context must be passed explicitly; the model otherwise may invent one.
+
+## SMS
+
+On 2026-11-15 the SIM7600G-H accepted three outbound PDU-mode tests on T-Mobile PL while
+IMS was registered with full SMS capability: short GSM-7, Polish text with diacritics in
+UCS2, and a four-part concatenated UCS2 message. `AT+CMGS` returned a message reference for
+each of the six submitted parts. The recipient confirmed that all three messages arrived
+complete and replied within about three minutes.
+
+Incoming messages can be listed from the SIM (`SM`) and modem (`ME`) stores and are only
+marked read or deleted by explicit commands. The reply was stored unread in `SM`; both the
+default listing and `--all-storages` decoded its numeric sender, local timestamp with `+01:00`
+offset, and GSM-7 text correctly. A sanitized copy of this modem PDU is a regression vector.
+Repeated `AT+CMGL=4` listings kept the entry unread; only the later explicit `AT+CMGR=0`
+read changed its state. Listing therefore does not silently consume unread messages on this
+firmware.
+The modem reported full IMS SMS service throughout the test and no fallback was observed,
+although `AT+CMGS` does not expose the selected bearer directly.

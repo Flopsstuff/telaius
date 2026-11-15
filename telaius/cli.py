@@ -21,6 +21,7 @@ from telaius.prompts import LANGS
 from telaius.realtime import probe
 from telaius.session import run_call
 from telaius.status import modem_status, relay_status
+from telaius.sms import delete_sms, list_sms, read_sms, send_sms
 from telaius.worker import start_call
 
 EXIT = {ModemBusy: 3, PolicyDenied: 4, ModemNotFound: 5, ModemNotReady: 5}
@@ -51,6 +52,11 @@ def parser():
     qmi = sub.add_parser("qmi"); qmi.add_argument("qmi_command", choices=["status", "mbn-list", "mbn-select"]); qmi.add_argument("id", nargs="?")
     relay = sub.add_parser("relay").add_subparsers(dest="relay_command", required=True)
     relay.add_parser("status"); relay.add_parser("install")
+    sms = sub.add_parser("sms").add_subparsers(dest="sms_command", required=True)
+    send = sms.add_parser("send"); send.add_argument("number"); send.add_argument("text", nargs="?"); send.add_argument("--file", type=Path)
+    listing = sms.add_parser("list"); listing.add_argument("--unread", action="store_true"); listing.add_argument("--all-storages", action="store_true")
+    read = sms.add_parser("read"); read.add_argument("id")
+    delete = sms.add_parser("delete"); delete.add_argument("id", nargs="?"); delete.add_argument("--read", action="store_true"); delete.add_argument("--all", action="store_true", dest="all_messages")
     return ap
 
 
@@ -117,6 +123,23 @@ def run(a):
         output = io.StringIO()
         with ModemLock("qmi"), contextlib.redirect_stdout(output): qmi_module._run_cmd(parser(), a)
         return {"output": output.getvalue()} if a.json_output else output.getvalue()
+    if a.command == "sms":
+        if a.sms_command == "send":
+            if a.file and a.text is not None:
+                raise ValueError("provide text or --file, not both")
+            if a.file:
+                text = sys.stdin.read() if str(a.file) == "-" else a.file.read_text()
+            elif a.text == "-":
+                text = sys.stdin.read()
+            elif a.text is not None:
+                text = a.text
+            else:
+                raise ValueError("SMS text, --file, or - is required")
+            return send_sms(a.number, text, cfg)
+        if a.sms_command == "list": return list_sms(a.unread, a.all_storages, cfg)
+        if a.sms_command == "read": return read_sms(a.id, cfg)
+        if not (a.id or a.read or a.all_messages): raise ValueError("provide an ID, --read, or --all")
+        return delete_sms([a.id] if a.id else None, a.read, a.all_messages, cfg)
     if a.relay_command == "status": return relay_status()
     subprocess.run([str(REPO_ROOT / "relay/install.sh")], check=True); return relay_status()
 

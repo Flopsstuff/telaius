@@ -4,6 +4,7 @@ voice = "rex"
 audio = "auto"
 max_seconds = 120
 calls_dir = "calls"
+messages_dir = "messages"
 
 [policy]
 allow_any = false
