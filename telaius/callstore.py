@@ -11,6 +11,7 @@ import os
 import shutil
 import signal
 import subprocess
+import threading
 import time
 import unicodedata
 import wave
@@ -78,7 +79,8 @@ def read_spec(directory):
 def write_status(directory, status):
     """Rewrite status.json in one step, so a reader never sees half a file."""
     directory = Path(directory)
-    tmp = directory / (STATUS_FILE + ".tmp")
+    # start_call and the worker both write it; a shared tmp name lets one replace the other's file away
+    tmp = directory / f"{STATUS_FILE}.{os.getpid()}.{threading.get_ident()}.tmp"
     tmp.write_text(json.dumps(status, ensure_ascii=False, indent=2))
     os.replace(tmp, directory / STATUS_FILE)
 

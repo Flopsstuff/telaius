@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -104,6 +105,27 @@ class StatusTests(TmpRootTests):
         write_status(directory, {"state": "dialing", "pid": os.getpid()})
         write_status(directory, {"state": "in_call", "pid": os.getpid()})
         self.assertEqual(read_status(directory)["state"], "in_call")
+        self.assertFalse(list(directory.glob("*.tmp")))
+
+    def test_two_writers_at_once_do_not_break_each_other(self):
+        directory = self.new_dir()
+        errors = []
+
+        def write(state):
+            try:
+                for _ in range(300):
+                    write_status(directory, {"state": state, "pid": os.getpid()})
+            except OSError as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=write, args=(s,)) for s in ("created", "dialing")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+        self.assertIn(read_status(directory)["state"], ("created", "dialing"))
         self.assertFalse(list(directory.glob("*.tmp")))
 
     def test_a_missing_call_is_reported_as_such(self):
