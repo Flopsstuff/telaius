@@ -8,6 +8,9 @@ import argparse
 import sys
 import time
 
+from telaius.errors import TelaiusError
+from telaius.lock import ModemLock
+from telaius.logs import setup
 from telaius.modem import IF_AT, AtChannel, close_modem, open_modem, open_port
 
 
@@ -16,7 +19,16 @@ def main():
     ap.add_argument("--wait", type=float, default=5, help="max seconds to wait for each command's result")
     ap.add_argument("cmds", nargs="+")
     a = ap.parse_args()
+    setup()
 
+    try:
+        with ModemLock("at console"):
+            run(a)
+    except TelaiusError as e:
+        sys.exit(f"{e.code}: {e}")
+
+
+def run(a):
     dev = open_modem()
     try:
         at = AtChannel(open_port(dev, IF_AT), echo=False)

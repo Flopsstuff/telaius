@@ -13,7 +13,10 @@ import wave
 
 import usb.core
 
-from telaius.modem import IF_AT, IF_PCM, AtChannel, close_modem, log, open_modem, open_port
+from telaius.errors import TelaiusError
+from telaius.lock import ModemLock
+from telaius.logs import log, setup
+from telaius.modem import IF_AT, IF_PCM, AtChannel, close_modem, open_modem, open_port
 
 
 def main():
@@ -23,7 +26,16 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--seconds", type=float, default=20)
     a = ap.parse_args()
+    setup()
 
+    try:
+        with ModemLock("calltest"):
+            run(a)
+    except TelaiusError as e:
+        sys.exit(f"{e.code}: {e}")
+
+
+def run(a):
     dev = open_modem()
     try:
         at = AtChannel(open_port(dev, IF_AT))
@@ -76,7 +88,7 @@ def main():
         at.send(f"ATD{a.number};", wait=10)
         got = at.wait_for(["VOICE CALL: BEGIN", "NO CARRIER", "BUSY", "NO ANSWER", "VOICE CALL: END"], 60)
         if got != "VOICE CALL: BEGIN":
-            log(f"call not answered: {got}")
+            log.info("call not answered: %s", got)
             return
         # Audio can only be moved to USB once the call is active.
         at.send("AT+CPCMREG=1")
@@ -88,7 +100,7 @@ def main():
         while time.time() < end:
             at.poll(200)
             if "VOICE CALL: END" in at.buf or "NO CARRIER" in at.buf:
-                log("remote hung up")
+                log.info("remote hung up")
                 break
         stop.set()
         for t in threads:
@@ -102,7 +114,7 @@ def main():
             w.setsampwidth(2)
             w.setframerate(rate)
             w.writeframes(bytes(rx))
-        log(f"saved {len(rx) / bps:.1f}s to {a.out}; stats={stats}")
+        log.info("saved %.1fs to %s; stats=%s", len(rx) / bps, a.out, stats)
         close_modem(dev, [IF_AT, IF_PCM])
 
 
