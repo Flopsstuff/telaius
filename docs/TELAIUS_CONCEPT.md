@@ -2,7 +2,7 @@
 
 **Project:** [Flopsstuff/telaius](https://github.com/Flopsstuff/telaius)  
 **Name:** *Telephone + Aius Locutius*, the Roman disembodied voice.  
-**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work as CLI prototypes. M2 (MCP interface) is not started.
+**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work through the `telaius` CLI, with SMS and Russian/Polish/English calls. M2 (agent integration): the `telaius-mcp` MCP server (stdio; calls with `result_schema`, call status and results, SMS) is implemented; the live end-to-end check is in progress.
 
 ## 1. Vision
 
