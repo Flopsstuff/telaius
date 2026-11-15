@@ -5,6 +5,7 @@ import termios
 import unittest
 from unittest import mock
 
+from telaius.errors import ConfigError
 from telaius.modem import TtyPort, _transport
 from telaius.qmi import CdcWdmPort, Qmi, open_qmi_port, tlv
 
@@ -57,7 +58,7 @@ class TransportSelectionTests(unittest.TestCase):
 
     def test_invalid_transport_is_rejected(self):
         with mock.patch.dict(os.environ, {"TELAIUS_TRANSPORT": "serial"}):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ConfigError):
                 _transport()
 
 
