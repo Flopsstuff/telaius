@@ -90,7 +90,12 @@ def pid_alive(pid):
         return False
     except PermissionError:
         return True
-    return True
+    # A worker whose parent has not reaped it yet (a long-running caller) is a zombie: dead, but signalable.
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return True
+    return stat.rpartition(")")[2].split()[0] != "Z"
 
 
 def read_status(directory):

@@ -170,7 +170,7 @@ class WorkerTests(TmpRootTests):
     def detached(self):
         """A call directory prepared by start_call, without a real worker process."""
         with mock.patch("telaius.worker.subprocess.Popen") as popen:
-            popen.return_value.pid = 4242
+            popen.return_value.pid = os.getpid()
             directory = worker.start_call(self.spec(), self.root)
         return directory, popen
 
@@ -180,11 +180,25 @@ class WorkerTests(TmpRootTests):
         self.assertEqual(read_spec(directory).number, NUMBER)
         status = read_status(directory)
         self.assertEqual((status["state"], status["call_id"]), ("created", directory.name))
-        self.assertIsNone(status["pid"], "the worker writes its own pid")
+        self.assertEqual(status["pid"], os.getpid())
         command = popen.call_args[0][0]
         self.assertEqual(command[:2], [sys.executable, "-m"])
         self.assertEqual(command[2:], ["telaius.worker", str(directory)])
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_a_worker_that_dies_before_its_session_starts_reads_as_dead(self):
+        popen = subprocess.Popen
+        with mock.patch("telaius.worker.subprocess.Popen",
+                        lambda _, **kw: popen([sys.executable, "-c", "raise SystemExit(1)"], **kw)):
+            directory = worker.start_call(self.spec(), self.root)
+
+        deadline = time.monotonic() + 10
+        while read_status(directory)["state"] == "created" and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        status = read_status(directory)
+        self.assertEqual((status["state"], status["final_status"]), ("failed", "failed"))
+        self.assertEqual(status["end_reason"], "error: worker died")
 
     def test_start_call_refuses_while_the_modem_is_busy(self):
         with ModemLock("call 2026-01-01_12-00-00_tester"):

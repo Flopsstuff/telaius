@@ -32,6 +32,11 @@ def start_call(spec, out_root):
     with open(directory / LOG_FILE, "a") as out:
         proc = subprocess.Popen([sys.executable, "-m", "telaius.worker", str(directory)],
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+    # Without the pid here, a worker that dies before writing its own status looks queued forever.
+    status = read_status(directory)
+    if status.get("state") == "created" and status.get("pid") is None:
+        status["pid"] = proc.pid
+        write_status(directory, status)
     log.info("call %s started in the background (pid %d)", directory.name, proc.pid)
     return directory
 
