@@ -62,3 +62,8 @@ def setting(name, default=None, config=None):
 def calls_path(config=None):
     path = Path(setting("calls_dir", "calls", config if config is not None else load_config()))
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def messages_path(config=None):
+    path = Path(setting("messages_dir", "messages", config if config is not None else load_config()))
+    return path if path.is_absolute() else REPO_ROOT / path

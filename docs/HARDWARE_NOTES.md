@@ -72,3 +72,15 @@ See [VOLTE_NOTES.md](VOLTE_NOTES.md) for the full story. In short:
 - Raspberry Pi kernel-device control, QMI and a relay call are tested; long-term USB power margin is still unproven (the board can draw up to ~2 A peaks, so consider the 5–12 V terminal input).
 - No graceful wrap-up before the max call duration yet; the call is cut abruptly.
 - Callee name/context must be passed explicitly; the model otherwise may invent one.
+
+## SMS
+
+On 2026-11-15 the SIM7600G-H accepted three outbound PDU-mode tests on T-Mobile PL while
+IMS was registered with full SMS capability: short GSM-7, Polish text with diacritics in
+UCS2, and a four-part concatenated UCS2 message. `AT+CMGS` returned a message reference for
+each of the six submitted parts. Recipient confirmation of complete delivery is pending.
+
+Incoming messages can be listed from the SIM (`SM`) and modem (`ME`) stores and are only
+marked read or deleted by explicit commands. The first live listing found no stored reply,
+so inbound decoding, operator routing (IMS or circuit-switched), and delivery delay remain
+to be confirmed on hardware.

@@ -62,6 +62,11 @@ subcommand; it writes exactly one JSON document to stdout while logs stay on std
 .venv/bin/telaius qmi mbn-list
 .venv/bin/telaius relay status
 .venv/bin/telaius relay install
+.venv/bin/telaius sms send +48XXXXXXXXX "Hello from Telaius"
+.venv/bin/telaius sms send +48XXXXXXXXX --file message.txt
+.venv/bin/telaius sms list --all-storages
+.venv/bin/telaius sms read SM:12
+.venv/bin/telaius sms delete SM:12
 ```
 
 `call` accepts `--task`, `--callee`, `--context`, `--constraints`, `--lang`, `--voice`,
@@ -90,6 +95,19 @@ Environment overrides for policy: `TELAIUS_ALLOWLIST` (comma-separated numbers),
 `TELAIUS_POLICY_SMS_PER_DAY`, `TELAIUS_POLICY_TIMEZONE`, `TELAIUS_POLICY_QUIET_START` and
 `TELAIUS_POLICY_QUIET_END`. `TELAIUS_MAX_SECONDS` only sets the default call length; the policy
 ceiling still clips it. A relative `calls_dir` is resolved from the repository root.
+
+### SMS
+
+SMS uses PDU mode and the same modem lock and outbound allowlist as calls. GSM-7 is used
+when possible, including the extension characters `{ } [ ] ~ \\ ^ | €`; all other text
+uses UCS2. Long messages are split with 160/153 GSM-7 or 70/67 UCS2 limits and reassembled
+from concatenation headers when listed.
+
+`sms send` also accepts `--file FILE`; use `--file -` or text `-` for stdin. Incoming IDs
+include their modem storage (`SM:12` or `ME:4`). `sms list` does not alter messages,
+`sms read ID` marks one modem entry read, and deletion is always explicit through
+`sms delete ID|--read|--all`. Attempts are journaled in gitignored `messages/sms.jsonl`,
+which supplies the daily SMS policy counter.
 
 Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 

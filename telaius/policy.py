@@ -1,6 +1,7 @@
 """Outbound-call safety policy shared by the CLI and future integrations."""
 import datetime as dt
 import dataclasses
+import json
 import os
 import re
 from pathlib import Path
@@ -85,3 +86,23 @@ class Policy:
     def apply_call(self, spec, now=None):
         number, max_seconds, clipped = self.check_call(spec.number, spec.max_seconds, now)
         return dataclasses.replace(spec, number=number, max_seconds=max_seconds), clipped
+
+    def check_sms(self, number, messages_dir, now=None):
+        number = normalize_number(number)
+        if not self.allow_any and number not in self.allowlist:
+            raise PolicyDenied("destination is not in the configured allowlist")
+        now = now or dt.datetime.now(ZoneInfo(self.timezone))
+        journal = Path(messages_dir) / "sms.jsonl"
+        sent = 0
+        if journal.exists():
+            for line in journal.read_text().splitlines():
+                try:
+                    record = json.loads(line)
+                    stamp = dt.datetime.fromisoformat(record["time"])
+                except (ValueError, KeyError):
+                    continue
+                if record.get("direction") == "out" and stamp.astimezone(ZoneInfo(self.timezone)).date() == now.date():
+                    sent += 1
+        if sent >= self.sms_per_day:
+            raise PolicyDenied(f"daily SMS limit ({self.sms_per_day}) reached")
+        return number
