@@ -1,0 +1,18 @@
+# Copy to telaius.toml. Environment variables named TELAIUS_<KEY> override simple values.
+lang = "ru"
+voice = "rex"
+audio = "auto"
+max_seconds = 120
+calls_dir = "calls"
+
+[policy]
+allow_any = false
+allowlist = []
+max_seconds = 300
+calls_per_day = 20
+sms_per_day = 20
+timezone = "Europe/Warsaw"
+
+[policy.quiet_hours]
+start = "22:00"
+end = "09:00"

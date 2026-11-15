@@ -12,5 +12,8 @@ dependencies = [
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+telaius = "telaius.cli:main"
+
 [tool.setuptools]
 packages = ["telaius"]

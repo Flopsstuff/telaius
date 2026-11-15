@@ -110,6 +110,28 @@ def read_status(directory):
     return status
 
 
+def find_call(call_id, root=CALLS_DIR):
+    directory = Path(root) / call_id
+    if not directory.is_dir() or directory.name != call_id:
+        raise CallNotFound(f"call {call_id!r} was not found")
+    return directory
+
+
+def list_calls(root=CALLS_DIR, limit=20):
+    root = Path(root)
+    if not root.exists():
+        return []
+    calls = []
+    for directory in sorted((p for p in root.iterdir() if p.is_dir()), reverse=True):
+        try:
+            calls.append(read_status(directory))
+        except CallNotFound:
+            continue
+        if len(calls) >= limit:
+            break
+    return calls
+
+
 def request_cancel(directory, reason="cancelled"):
     """Ask a running call to end: a flag file its session polls, plus SIGTERM to another process.
 

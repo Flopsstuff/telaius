@@ -118,7 +118,8 @@ class CallSession:
         write_spec(self.dir, self.spec)
         self.record = {"call_id": self.dir.name, "number": self.spec.number, "lang": self.spec.lang,
                        "voice": self.spec.voice, "bot_name": bot_name(self.spec.lang, self.spec.voice),
-                       "audio": self.spec.audio, "task": self.spec.task, "callee": self.spec.callee,
+                       "audio": "relay" if self.spec.audio == "auto" else self.spec.audio,
+                       "audio_requested": self.spec.audio, "task": self.spec.task, "callee": self.spec.callee,
                        "context": self.spec.context, "started_at": stamp(), "answered": False, "network": None}
         self._status = {"call_id": self.dir.name, "pid": os.getpid(), "started_at": self.record["started_at"],
                         "answered_at": None, "ended_at": None, "final_status": None,
@@ -150,7 +151,7 @@ class CallSession:
     async def _call(self):
         self._dev, self._at, self._pcm = await asyncio.to_thread(self._open_ports)
         try:
-            self.rate = RELAY_RATE if self.spec.audio == "relay" else await asyncio.to_thread(self._at.pcm_rate)
+            self.rate = RELAY_RATE if self.spec.audio in ("auto", "relay") else await asyncio.to_thread(self._at.pcm_rate)
             self.record["rate"] = self.rate
             self._frame_len = self.rate * 2 // 50  # 20 ms
             self.ev = realtime.new_state()
@@ -212,8 +213,9 @@ class CallSession:
             # The modem expects a steady 20 ms cadence; send silence when the bot is quiet.
             t0 = time.monotonic()
             while not self._stop.is_set():
-                frame = self._playback.pop(self._frame_len)
-                frame += bytes(self._frame_len - len(frame))
+                frame_len = self._frame_len
+                frame = self._playback.pop(frame_len)
+                frame += bytes(frame_len - len(frame))
                 self._tx.extend(frame)
                 try:
                     self._pcm.write(frame, timeout_ms=200)
@@ -275,7 +277,7 @@ class CallSession:
         # and the relay starts its session when our frames arrive.
         start(reader)
         start(writer)
-        if spec.audio == "relay":
+        if spec.audio in ("auto", "relay"):
             for _ in range(int(RELAY_AUDIO_WAIT / 0.1)):
                 await asyncio.sleep(0.1)
                 if self._rx:
@@ -283,6 +285,16 @@ class CallSession:
             else:
                 log.warning("no call audio from the relay after %.0f s (is telaius-relay running on the module?)",
                             RELAY_AUDIO_WAIT)
+                if spec.audio == "auto":
+                    self.rate = await asyncio.to_thread(self._at.pcm_rate)
+                    self._frame_len = self.rate * 2 // 50
+                    aligner[0] = PcmAligner(self.rate)
+                    self.record["audio"] = "usb"
+                    self.record["rate"] = self.rate
+                    await realtime.configure(ws, self.rate, self.spec.instructions(), self.spec.voice,
+                                             LANG_HINT[self.spec.lang])
+                    await self._send("AT+CPCMREG=1")
+                    log.info("relay unavailable; continuing the call through USB at %d Hz", self.rate)
         else:
             await self._send("AT+CPCMREG=1")
             # At 16 kHz on VoLTE the modem's capture sometimes fails at call start and no audio
@@ -344,7 +356,7 @@ class CallSession:
                 t.join(1)
             try:
                 self._at_send("AT+CHUP")
-                if self.spec.audio == "usb":
+                if self.record.get("audio") == "usb":
                     self._at_send("AT+CPCMREG=0")
             except (OSError, usb.core.USBError, TimeoutError) as e:
                 log.warning("could not hang up cleanly: %s", e)

@@ -42,36 +42,46 @@ If ModemManager is already managing the modem, stop it before the first reconnec
 `TELAIUS_TRANSPORT=tty` to require kernel devices or `TELAIUS_TRANSPORT=usb` to force the raw
 libusb fallback. Automatic mode prefers kernel devices when they are present.
 
-## Tools
+## CLI
+
+The package installs one `telaius` command. Global `--json` may appear before or after the
+subcommand; it writes exactly one JSON document to stdout while logs stay on stderr.
 
 ```bash
-# AT console (if2 of the modem)
-.venv/bin/python -m telaius.at ATI AT+CPIN? AT+CREG? AT+CPSI?
-
-# QMI (if5): IMS registration state and carrier MBN profiles
-.venv/bin/python -m telaius.qmi status
-.venv/bin/python -m telaius.qmi mbn-list
-
-# M0: call, play a WAV into the call, record the far end
-.venv/bin/python -m telaius.calltest +48XXXXXXXXX phrase.wav recordings/rx.wav
-
-# M1: let the AI talk on a real call (ru or pl prompt)
-.venv/bin/python -m telaius.voicebridge --no-call          # check the xAI session only
-.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --lang pl --voice rex --max-seconds 120
-
-# 16 kHz VoLTE audio via the relay on the module (one-time: AT+CUSBADB=1, reset, then install).
-# relay/telaius-relay is prebuilt (Git LFS); rebuild with: docker build -t telaius-armbuild relay/ && (cd relay && docker run --rm -v "$PWD":/src telaius-armbuild make)
-relay/install.sh
-.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --audio relay
-
-# a call with a goal: the bot introduces itself, pursues the task, then reports
-.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --audio relay \
-    --task "Записаться на стрижку в субботу после 12:00" \
-    --callee "барбершоп Brzytwa" --context "Клиент: Алексей, обычная мужская стрижка"
-
-# the same call in its own process: prints the call directory and returns at once
-.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --audio relay --detach --task "…"
+.venv/bin/telaius status --json
+.venv/bin/telaius call +48XXXXXXXXX --task "Ask about opening hours" --callee "shop"
+.venv/bin/telaius call +48XXXXXXXXX --detach --audio auto
+.venv/bin/telaius calls list
+.venv/bin/telaius calls show CALL_ID --transcript
+.venv/bin/telaius calls wait CALL_ID --timeout 180
+.venv/bin/telaius calls end CALL_ID
+.venv/bin/telaius probe --lang ru --voice rex
+.venv/bin/telaius at ATI AT+CPIN? AT+CPSI?
+.venv/bin/telaius qmi status
+.venv/bin/telaius qmi mbn-list
+.venv/bin/telaius relay status
+.venv/bin/telaius relay install
 ```
+
+`call` accepts `--task`, `--callee`, `--context`, `--constraints`, `--lang`, `--voice`,
+`--formal`, `--audio auto|usb|relay`, `--max-seconds`, and `--result-schema FILE.json`.
+`auto` tries the 16 kHz relay and switches the live xAI session and modem audio to USB if no
+relay frames arrive.
+
+Exit codes are `0` success, `1` operational/configuration error, `2` usage, `3` modem busy, `4`
+policy denied, and `5` modem missing or not ready. `call` and `calls wait` return `10` for no
+answer or busy.
+
+### Configuration and policy
+
+Copy `telaius.example.toml` to the gitignored `telaius.toml`, or select a path with
+`TELAIUS_CONFIG`. Secrets stay in `.env`; `TELAIUS_ENV_FILE` selects that file. Command flags
+override `TELAIUS_*` environment values, which override TOML and built-in defaults.
+
+Outbound calls are denied unless the normalized destination is in `policy.allowlist`, or
+`policy.allow_any = true` is explicit. Policy also enforces the daily call limit, timezone-aware
+quiet hours, and a hard duration ceiling. Numbers may be E.164, start with `00`, or contain nine
+Polish digits; spaces and hyphens are ignored.
 
 Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 
