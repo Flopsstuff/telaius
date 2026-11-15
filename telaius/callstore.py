@@ -92,10 +92,28 @@ def pid_alive(pid):
         return True
     # A worker whose parent has not reaped it yet (a long-running caller) is a zombie: dead, but signalable.
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return True
-    return stat.rpartition(")")[2].split()[0] != "Z"
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False
+    except ChildProcessError:
+        pass
+    state = _proc_state(pid) or _ps_state(pid)
+    return not state or state[0] != "Z"
+
+
+def _proc_state(pid):
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0]
+    except (OSError, IndexError):
+        return None
+
+
+def _ps_state(pid):
+    """The same state letter where there is no /proc (macOS)."""
+    try:
+        r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() or None
 
 
 def read_status(directory):
