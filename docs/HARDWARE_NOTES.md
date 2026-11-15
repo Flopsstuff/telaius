@@ -85,5 +85,8 @@ Incoming messages can be listed from the SIM (`SM`) and modem (`ME`) stores and 
 marked read or deleted by explicit commands. The reply was stored unread in `SM`; both the
 default listing and `--all-storages` decoded its numeric sender, local timestamp with `+01:00`
 offset, and GSM-7 text correctly. A sanitized copy of this modem PDU is a regression vector.
+Repeated `AT+CMGL=4` listings kept the entry unread; only the later explicit `AT+CMGR=0`
+read changed its state. Listing therefore does not silently consume unread messages on this
+firmware.
 The modem reported full IMS SMS service throughout the test and no fallback was observed,
 although `AT+CMGS` does not expose the selected bearer directly.

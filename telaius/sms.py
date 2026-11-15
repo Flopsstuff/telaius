@@ -95,8 +95,9 @@ def _semi_octets(number):
 
 def _decode_address(data, length, toa):
     if toa & 0x70 == 0x50:
-        septets = _unpack_septets(data, length)
-        return decode_gsm7(septets), (length * 7 + 7) // 8
+        octets = (length + 1) // 2
+        septets = octets * 8 // 7
+        return decode_gsm7(_unpack_septets(data[:octets], septets)), octets
     octets = (length + 1) // 2
     digits = "".join(f"{byte:02X}"[1] + f"{byte:02X}"[0] for byte in data[:octets])[:length]
     return ("+" if toa & 0x90 == 0x90 else "") + digits, octets
@@ -162,8 +163,9 @@ def encode_submit(number, text, reference=None):
 
 def _timestamp(raw):
     values = [int(f"{byte:02X}"[1] + f"{byte:02X}"[0]) for byte in raw[:6]]
-    zone_digits = f"{raw[6]:02X}"[1] + f"{raw[6]:02X}"[0]
-    quarters = int(zone_digits.replace("D", "0"))
+    zone_byte = raw[6] & 0xF7
+    zone_digits = f"{zone_byte:02X}"[1] + f"{zone_byte:02X}"[0]
+    quarters = int(zone_digits)
     if raw[6] & 0x08:
         quarters = -quarters
     zone = dt.timezone(dt.timedelta(minutes=quarters * 15))
@@ -174,6 +176,8 @@ def decode_deliver(pdu):
     data = bytes.fromhex(re.sub(r"\s+", "", pdu)); position = 0
     smsc_length = data[position]; position += 1 + smsc_length
     first = data[position]; position += 1
+    if first & 0x03:
+        raise ValueError("PDU is not SMS-DELIVER")
     address_length, toa = data[position], data[position + 1]; position += 2
     sender, consumed = _decode_address(data[position:], address_length, toa); position += consumed
     _, dcs = data[position], data[position + 1]; position += 2
@@ -282,9 +286,14 @@ class SmsService:
                 for index, line in enumerate(lines):
                     match = re.match(r"\+CMGL:\s*(\d+),(\d+),", line)
                     if match and index + 1 < len(lines):
-                        decoded = decode_deliver(lines[index + 1])
-                        messages.append({**decoded, "id": f"{storage}:{match.group(1)}", "storage": storage,
-                                         "index": int(match.group(1)), "unread": int(match.group(2)) == 0})
+                        metadata = {"id": f"{storage}:{match.group(1)}", "storage": storage,
+                                    "index": int(match.group(1)), "unread": int(match.group(2)) == 0}
+                        try:
+                            decoded = decode_deliver(lines[index + 1])
+                        except (IndexError, UnicodeError, ValueError) as error:
+                            messages.append({**metadata, "error": str(error)})
+                        else:
+                            messages.append({**decoded, **metadata})
         finally:
             close_modem(dev, [IF_AT])
         joined = join_messages(messages)
@@ -299,7 +308,7 @@ class SmsService:
                 if record.get("direction") == "in":
                     known.update(record.get("ids", []))
         for message in joined:
-            if not set(message["ids"]).issubset(known):
+            if "error" not in message and not set(message["ids"]).issubset(known):
                 self.journal("in", message["sender"], message["text"], len(message["ids"]),
                              ids=message["ids"], received_at=message["timestamp"])
         return joined

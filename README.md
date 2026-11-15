@@ -107,7 +107,8 @@ from concatenation headers when listed.
 include their modem storage (`SM:12` or `ME:4`). `sms list` does not alter messages,
 `sms read ID` marks one modem entry read, and deletion is always explicit through
 `sms delete ID|--read|--all`. Attempts are journaled in gitignored `messages/sms.jsonl`,
-which supplies the daily SMS policy counter.
+which supplies the daily SMS policy counter. The limit counts submitted messages, not
+their encoded parts; one concatenated message consumes one daily allowance.
 
 Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 

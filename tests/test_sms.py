@@ -3,6 +3,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 from telaius.policy import Policy
@@ -10,11 +12,11 @@ from telaius.sms import (_pack_septets, _semi_octets, decode_deliver, encode_sub
                          gsm7_septets, join_messages)
 
 
-def deliver_pdu(sender, text, dcs=0, concat=None, alphanumeric=False):
+def deliver_pdu(sender, text, dcs=0, concat=None, alphanumeric=False, stamp="62115121000000"):
     first = 0x40 if concat else 0
     if alphanumeric:
         address = _pack_septets(gsm7_septets(sender))
-        address_length, toa = len(gsm7_septets(sender)), 0xD0
+        address_length, toa = (len(gsm7_septets(sender)) * 7 + 3) // 4, 0xD0
     else:
         address = _semi_octets(sender)
         address_length, toa = len(sender.lstrip("+")), 0x91
@@ -31,8 +33,7 @@ def deliver_pdu(sender, text, dcs=0, concat=None, alphanumeric=False):
         user = udh + text.encode("utf-16-be"); length = len(user)
     else:
         user = udh + bytes.fromhex(text); length = len(user)
-    stamp = bytes.fromhex("62115121000000")
-    body = bytes((first, address_length, toa)) + address + bytes((0, dcs)) + stamp + bytes((length,)) + user
+    body = bytes((first, address_length, toa)) + address + bytes((0, dcs)) + bytes.fromhex(stamp) + bytes((length,)) + user
     return (b"\0" + body).hex().upper()
 
 
@@ -72,6 +73,20 @@ class DeliverTests(unittest.TestCase):
         self.assertEqual((numeric["sender"], numeric["text"]), ("+48000000000", "Hello {}"))
         self.assertEqual((alpha["sender"], alpha["text"]), ("INFO", "Service"))
 
+    def test_spec_alphanumeric_sender_vector(self):
+        message = decode_deliver("00000BD0C7F7FBCC2E0300006211512100000007D3B2DC9E1E9701")
+        self.assertEqual((message["sender"], message["text"]), ("Google", "Service"))
+
+    def test_negative_timezone(self):
+        message = decode_deliver(deliver_pdu("+48000000000", "West", stamp="6211512100004A"))
+        self.assertEqual(message["timestamp"], "2026-11-15T12:00:00-06:00")
+
+    def test_rejects_non_deliver_pdu(self):
+        pdu = bytearray.fromhex(deliver_pdu("+48000000000", "draft"))
+        pdu[1] = 1
+        with self.assertRaisesRegex(ValueError, "not SMS-DELIVER"):
+            decode_deliver(pdu.hex())
+
     def test_ucs2_and_8bit(self):
         self.assertEqual(decode_deliver(deliver_pdu("+48000000000", "Zażółć", 8))["text"], "Zażółć")
         self.assertEqual(decode_deliver(deliver_pdu("+48000000000", "DEADBEEF", 4))["text"], "DEADBEEF")
@@ -97,6 +112,25 @@ class SmsPolicyTests(unittest.TestCase):
             (path / "sms.jsonl").write_text((json.dumps(record) + "\n") * 2)
             with self.assertRaisesRegex(Exception, "daily SMS limit"):
                 policy.check_sms("+48000000000", path, now)
+
+
+class SmsServiceTests(unittest.TestCase):
+    def test_list_keeps_valid_messages_when_one_pdu_is_not_deliver(self):
+        valid = deliver_pdu("+48000000000", "valid")
+        invalid = bytearray.fromhex(deliver_pdu("+48000000000", "draft")); invalid[1] = 1
+        replies = iter(("OK", '+CPMS: "SM",2,20\r\nOK', "OK",
+                        f'+CMGL: 1,2,,23\r\n{invalid.hex()}\r\n+CMGL: 2,0,,23\r\n{valid}\r\nOK'))
+        channel = SimpleNamespace(send=lambda *args, **kwargs: next(replies))
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch("telaius.sms.open_modem", return_value=object()), \
+             mock.patch("telaius.sms.open_port"), \
+             mock.patch("telaius.sms.AtChannel", return_value=channel), \
+             mock.patch("telaius.sms.close_modem"):
+            from telaius.sms import SmsService
+            messages = SmsService(tmp).list()
+        self.assertEqual(next(item["error"] for item in messages if "error" in item),
+                         "PDU is not SMS-DELIVER")
+        self.assertEqual(next(item["text"] for item in messages if "text" in item), "valid")
 
 
 if __name__ == "__main__":
