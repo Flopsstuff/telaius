@@ -84,6 +84,12 @@ Outbound calls are denied unless the normalized destination is in `policy.allowl
 quiet hours, and a hard duration ceiling. Numbers may be E.164, start with `00`, or contain nine
 Polish digits; spaces and hyphens are ignored.
 
+Environment overrides for policy: `TELAIUS_ALLOWLIST` (comma-separated numbers),
+`TELAIUS_ALLOW_ANY`, `TELAIUS_POLICY_MAX_SECONDS`, `TELAIUS_POLICY_CALLS_PER_DAY`,
+`TELAIUS_POLICY_SMS_PER_DAY`, `TELAIUS_POLICY_TIMEZONE`, `TELAIUS_POLICY_QUIET_START` and
+`TELAIUS_POLICY_QUIET_END`. `TELAIUS_MAX_SECONDS` only sets the default call length; the policy
+ceiling still clips it. A relative `calls_dir` is resolved from the repository root.
+
 Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 
 ### Following and ending a call while it runs
