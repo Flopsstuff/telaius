@@ -1,4 +1,5 @@
 """The call directory, the modem lock and the background worker."""
+import contextlib
 import json
 import logging
 import os
@@ -375,6 +376,11 @@ def descendants(pid):
     return found
 
 
+def kill(pid):
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+
+
 class DetachedWorkerTests(TmpRootTests):
     def test_a_call_survives_its_caller_and_the_callers_process_tree(self):
         caller = subprocess.Popen([sys.executable, "-c", CALLER, str(self.root), FAKE_WORKER],
@@ -384,16 +390,13 @@ class DetachedWorkerTests(TmpRootTests):
         directory = Path(caller.stdout.readline().strip())
         caller.stdout.close()
         pid = read_status(directory)["pid"]
-        self.addCleanup(lambda: pid_alive(pid) and os.kill(pid, signal.SIGKILL))
+        self.addCleanup(kill, pid)
         self.wait_for(directory, lambda s: s["state"] == "in_call")
 
         tree = [caller.pid, *descendants(caller.pid)]
         os.killpg(caller.pid, signal.SIGKILL)
         for victim in tree:
-            try:
-                os.kill(victim, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            kill(victim)
 
         self.assertNotIn(pid, tree, "the worker is not in the caller's tree")
         status = self.wait_for(directory, lambda s: s["state"] in ("ended", "failed"))
