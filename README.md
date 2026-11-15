@@ -55,9 +55,11 @@ libusb fallback. Automatic mode prefers kernel devices when they are present.
 # M0: call, play a WAV into the call, record the far end
 .venv/bin/python -m telaius.calltest +48XXXXXXXXX phrase.wav recordings/rx.wav
 
-# M1: let the AI talk on a real call (ru or pl prompt)
+# M1: let the AI talk on a real call (ru / pl / en prompt)
 .venv/bin/python -m telaius.voicebridge --no-call          # check the xAI session only
+.venv/bin/python -m telaius.voicebridge --no-call --lang en
 .venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --lang pl --voice rex --max-seconds 120
+.venv/bin/python -m telaius.voicebridge +48XXXXXXXXX --lang en --voice eve --max-seconds 120
 
 # 16 kHz VoLTE audio via the relay on the module (one-time: AT+CUSBADB=1, reset, then install).
 # relay/telaius-relay is prebuilt (Git LFS); rebuild with: docker build -t telaius-armbuild relay/ && (cd relay && docker run --rm -v "$PWD":/src telaius-armbuild make)
@@ -96,7 +98,7 @@ One modem means one operation at a time: a call, `telaius.at`, `telaius.calltest
 
 Logs go to stderr; stdout stays free for machine-readable output. `XAI_API_KEY` is read from the environment or from `.env` in the repository root — `TELAIUS_ENV_FILE` points at another file, which is what a separate worktree needs.
 
-Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template and rules, recording facts, voice tags, gender lines), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя), voice genders, transcription hints and tool descriptions. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
+Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` / `en.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template with `constraints`, rules, recording facts, voice tags, gender lines and `[forms]`), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя / Telaya), voice genders, transcription hints and tool descriptions. The owner's call summary tool text stays in Russian for every language. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
 
 Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordings/`; both are gitignored. Only call numbers whose owners agreed to be called by an AI assistant.
 
