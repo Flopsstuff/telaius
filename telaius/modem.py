@@ -9,13 +9,15 @@ import array
 import glob
 import os
 import select
-import sys
 import termios
 import time
 
 import usb.backend.libusb1
 import usb.core
 import usb.util
+
+from telaius.errors import ConfigError, ModemNotFound
+from telaius.logs import log
 
 VID, PID = 0x1E0E, 0x9001
 IF_AT = 2
@@ -27,10 +29,6 @@ TTY_PATTERNS = {
 }
 
 FINAL_RESULTS = ("OK", "ERROR", "NO CARRIER", "BUSY", "NO ANSWER")
-
-
-def log(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 def _backend():
@@ -45,7 +43,7 @@ def _backend():
 def _transport():
     forced = os.environ.get("TELAIUS_TRANSPORT", "").lower()
     if forced and forced not in {"tty", "usb"}:
-        raise ValueError("TELAIUS_TRANSPORT must be tty or usb")
+        raise ConfigError("TELAIUS_TRANSPORT must be tty or usb")
     if forced:
         return forced
     return "tty" if all(glob.glob(pattern) for pattern in TTY_PATTERNS.values()) else "usb"
@@ -54,7 +52,7 @@ def _transport():
 def _tty_path(ifnum):
     paths = sorted(glob.glob(TTY_PATTERNS[ifnum]))
     if not paths:
-        raise FileNotFoundError(f"no SimTech tty for USB interface {ifnum} ({TTY_PATTERNS[ifnum]})")
+        raise ModemNotFound(f"no SimTech tty for USB interface {ifnum} ({TTY_PATTERNS[ifnum]})")
     return paths[0]
 
 
@@ -68,7 +66,7 @@ class TtyModem:
 def open_usb_modem():
     dev = usb.core.find(idVendor=VID, idProduct=PID, backend=_backend())
     if dev is None:
-        sys.exit(f"modem {VID:04x}:{PID:04x} not found on USB")
+        raise ModemNotFound(f"modem {VID:04x}:{PID:04x} not found on USB")
     return dev
 
 
@@ -229,7 +227,7 @@ class PcmAligner:
             if here > self.NOISY:
                 shifted = self._roughness(self.buf[1:self.win + 1])
                 if shifted * 4 < here:
-                    log(f"PCM stream misaligned by 1 byte (roughness {here:.0f} vs {shifted:.0f}), realigning")
+                    log.info("PCM stream misaligned by 1 byte (roughness %.0f vs %.0f), realigning", here, shifted)
                     self.buf = self.buf[1:]
                     continue
             out += self.buf[:self.win]
@@ -248,14 +246,14 @@ class AtChannel:
         if self.echo:
             for line in text.splitlines():
                 if line.strip():
-                    log(f"AT< {line.strip()}")
+                    log.info("AT< %s", line.strip())
         self.buf += text
         return text
 
     def send(self, cmd, wait=3):
         """Send a command and read until a final result code or `wait` seconds."""
         if self.echo:
-            log(f"AT> {cmd}")
+            log.info("AT> %s", cmd)
         self.buf = ""
         self.port.write((cmd + "\r").encode())
         end = time.time() + wait

@@ -14,11 +14,15 @@ import argparse
 import os
 import select
 import struct
+import sys
 import time
 
 import usb.core
 import usb.util
 
+from telaius.errors import TelaiusError
+from telaius.lock import ModemLock
+from telaius.logs import setup
 from telaius.modem import open_usb_modem
 
 IF_QMI = 5
@@ -310,6 +314,15 @@ def main():
     ap.add_argument("cmd", choices=["status", "mbn-list", "mbn-select"])
     ap.add_argument("id", nargs="?")
     a = ap.parse_args()
+    setup()
+    try:
+        with ModemLock("qmi"):
+            _run_cmd(ap, a)
+    except TelaiusError as e:
+        sys.exit(f"{e.code}: {e}")
+
+
+def _run_cmd(ap, a):
     q = Qmi()
     try:
         if a.cmd == "status":

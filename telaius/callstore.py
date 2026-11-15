@@ -1,18 +1,31 @@
-"""Where finished calls go: calls/<date>_<time>_<who>/ with call.mp3, transcript.txt and result.json.
+"""Where a call lives on disk: calls/<date>_<time>_<who>/, created when the call starts.
+
+While the call runs: spec.json (what was asked), status.json (where it is now, rewritten on every
+state change) and call.log. When it ends: call.mp3, transcript.txt and result.json.
 
 calls/ is gitignored: it holds real people's voices and phone numbers.
 """
 import array
 import json
+import os
 import shutil
+import signal
 import subprocess
 import time
 import unicodedata
 import wave
 from pathlib import Path
 
+from telaius.callspec import CallSpec
+from telaius.errors import CallNotFound
+
 CALLS_DIR = Path(__file__).resolve().parents[1] / "calls"
 MP3_BITRATE = "48k"  # plenty for 16 kHz mono speech
+
+SPEC_FILE = "spec.json"
+STATUS_FILE = "status.json"
+CANCEL_FILE = "cancel"
+LOG_FILE = "call.log"
 
 _TRANSLIT = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
                      ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s",
@@ -44,7 +57,68 @@ def slug(callee, number):
 
 def call_dir(callee, number, root=CALLS_DIR, started=None):
     stamp = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(started))
-    return root / f"{stamp}_{slug(callee, number)}"
+    base = Path(root) / f"{stamp}_{slug(callee, number)}"
+    path, n = base, 2
+    while path.exists():  # two calls in the same second keep their own directories
+        path, n = base.with_name(f"{base.name}-{n}"), n + 1
+    return path
+
+
+def write_spec(directory, spec):
+    Path(directory).joinpath(SPEC_FILE).write_text(json.dumps(spec.to_dict(), ensure_ascii=False, indent=2))
+
+
+def read_spec(directory):
+    path = Path(directory) / SPEC_FILE
+    if not path.exists():
+        raise CallNotFound(f"no {SPEC_FILE} in {directory}")
+    return CallSpec.from_dict(json.loads(path.read_text()))
+
+
+def write_status(directory, status):
+    """Rewrite status.json in one step, so a reader never sees half a file."""
+    directory = Path(directory)
+    tmp = directory / (STATUS_FILE + ".tmp")
+    tmp.write_text(json.dumps(status, ensure_ascii=False, indent=2))
+    os.replace(tmp, directory / STATUS_FILE)
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_status(directory):
+    """The call's status. A worker that died without writing an end is reported as failed."""
+    path = Path(directory) / STATUS_FILE
+    if not path.exists():
+        raise CallNotFound(f"no {STATUS_FILE} in {directory}")
+    status = json.loads(path.read_text())
+    pid = status.get("pid")
+    if status.get("state") not in ("ended", "failed") and pid and not pid_alive(pid):
+        status.update(state="failed", final_status="failed", end_reason="error: worker died")
+    return status
+
+
+def request_cancel(directory, reason="cancelled"):
+    """Ask a running call to end: a flag file its session polls, plus SIGTERM to another process.
+
+    Returns the status the call had when asked; an already finished call is left alone.
+    """
+    directory = Path(directory)
+    status = read_status(directory)
+    if status.get("state") in ("ended", "failed"):
+        return status
+    (directory / CANCEL_FILE).write_text(reason)
+    pid = status.get("pid")
+    if pid and pid != os.getpid() and pid_alive(pid):
+        os.kill(pid, signal.SIGTERM)
+    return status
 
 
 def mix(rx, tx):
