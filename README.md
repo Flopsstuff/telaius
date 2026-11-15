@@ -56,6 +56,7 @@ subcommand; it writes exactly one JSON document to stdout while logs stay on std
 .venv/bin/telaius calls wait CALL_ID --timeout 180
 .venv/bin/telaius calls end CALL_ID
 .venv/bin/telaius probe --lang ru --voice rex
+.venv/bin/telaius call +48XXXXXXXXX --lang en --voice eve --max-seconds 120
 .venv/bin/telaius at ATI AT+CPIN? AT+CPSI?
 .venv/bin/telaius qmi status
 .venv/bin/telaius qmi mbn-list
@@ -113,7 +114,7 @@ One modem means one operation at a time: a call, `telaius.at`, `telaius.calltest
 
 Logs go to stderr; stdout stays free for machine-readable output. `XAI_API_KEY` is read from the environment or from `.env` in the repository root — `TELAIUS_ENV_FILE` points at another file, which is what a separate worktree needs.
 
-Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template and rules, recording facts, voice tags, gender lines), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя), voice genders, transcription hints and tool descriptions. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
+Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` / `en.toml` hold each language's texts (free chat, intros incl. `intro_formal`, the `[task]` template with `constraints`, rules, recording facts, voice tags, gender lines and `[forms]`), `settings.toml` holds the owner's name, the bot name per voice gender (Telaius / Телайя / Telaya), voice genders, transcription hints and tool descriptions. The owner's call summary tool text stays in Russian for every language. Adding `prompts/<lang>.toml` adds a language to `--lang`. `TELAIUS_PROMPTS_DIR` points to another folder; `--prompt-file` replaces the prompt for one call.
 
 Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordings/`; both are gitignored. Only call numbers whose owners agreed to be called by an AI assistant.
 

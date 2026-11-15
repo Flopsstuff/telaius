@@ -53,9 +53,11 @@ def bot_name(lang, voice):
     return names.get(_gender(voice) or "", {}).get(lang, names["default"])
 
 
-def build_instructions(lang, voice, task=None, callee=None, context=None, prompt=None, formal=False):
+def build_instructions(lang, voice, task=None, callee=None, context=None, prompt=None,
+                        formal=False, constraints=None):
     """System instructions for one call. `prompt` (from --prompt-file) replaces the built-in text;
-    `formal` is for organizations: question first, AI disclosure right after it, formal address."""
+    `formal` is for organizations: question first, AI disclosure right after it, formal address.
+    `constraints` (from --constraints) adds hard limits under [task].constraints when a task is set."""
     t = TEXTS[lang]
     gender = _gender(voice)
     words = {"name": bot_name(lang, voice), "owner": SETTINGS["owner"][lang],
@@ -71,6 +73,8 @@ def build_instructions(lang, voice, task=None, callee=None, context=None, prompt
                  k["callee"].format(callee.strip()) if callee else k["no_callee"]]
         if context:
             parts.append(k["context"].format(context.strip()))
+        if constraints:
+            parts.append(k["constraints"].format(constraints.strip()))
         parts.append(k["rules"])
     else:
         parts = [t["chat"].format(**words)]
