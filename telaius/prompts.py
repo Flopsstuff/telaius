@@ -30,18 +30,35 @@ VOICE_GENDER = SETTINGS.get("voices", {})
 
 OUTCOMES = ["done", "partial", "failed", "no_task"]
 _DESC = SETTINGS["tools"]
-_RESULT_PARAMS = {
-    "type": "object",
-    "properties": {
+
+
+def _nullable(schema):
+    """The same field, also allowing null: the bot answers null for what it did not find out."""
+    kind = schema.get("type")
+    if isinstance(kind, str) and kind != "null":
+        return {**schema, "type": [kind, "null"]}
+    if isinstance(kind, list) and "null" not in kind:
+        return {**schema, "type": [*kind, "null"]}
+    return schema
+
+
+def tools(result_schema=None):
+    """The bot's two result functions; `result_schema` (an object schema) becomes their `data`."""
+    properties = {
         "outcome": {"type": "string", "enum": OUTCOMES, "description": _DESC["outcome"]},
         "summary": {"type": "string", "description": _DESC["summary"]},
-    },
-    "required": ["outcome", "summary"],
-}
-TOOLS = [
-    {"type": "function", "name": "end_call", "description": _DESC["end_call"], "parameters": _RESULT_PARAMS},
-    {"type": "function", "name": "report_result", "description": _DESC["report_result"], "parameters": _RESULT_PARAMS},
-]
+        "unresolved": {"type": "array", "items": {"type": "string"}, "description": _DESC["unresolved"]},
+    }
+    required = ["outcome", "summary", "unresolved"]
+    if result_schema:
+        data = dict(result_schema, description=result_schema.get("description") or _DESC["data"])
+        if isinstance(data.get("properties"), dict):
+            data["properties"] = {k: _nullable(v) for k, v in data["properties"].items()}
+        properties["data"] = data
+        required.append("data")
+    params = {"type": "object", "properties": properties, "required": required}
+    return [{"type": "function", "name": name, "description": _DESC[name], "parameters": params}
+            for name in ("end_call", "report_result")]
 
 
 def _gender(voice):
@@ -54,10 +71,11 @@ def bot_name(lang, voice):
 
 
 def build_instructions(lang, voice, task=None, callee=None, context=None, prompt=None,
-                        formal=False, constraints=None):
+                        formal=False, constraints=None, result_schema=None):
     """System instructions for one call. `prompt` (from --prompt-file) replaces the built-in text;
     `formal` is for organizations: question first, AI disclosure right after it, formal address.
-    `constraints` (from --constraints) adds hard limits under [task].constraints when a task is set."""
+    `constraints` (from --constraints) adds hard limits under [task].constraints when a task is set.
+    `result_schema` adds the rule for filling `data` honestly."""
     t = TEXTS[lang]
     gender = _gender(voice)
     words = {"name": bot_name(lang, voice), "owner": SETTINGS["owner"][lang],
@@ -79,6 +97,8 @@ def build_instructions(lang, voice, task=None, callee=None, context=None, prompt
     else:
         parts = [t["chat"].format(**words)]
     parts.append(t["recording"])  # also with --prompt-file: the bot must never deny the recording
+    if result_schema:
+        parts.append(t["result_data"])
     if not prompt:
         parts.append(t["expressive"])
     if gender in t.get("gender", {}):

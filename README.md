@@ -4,7 +4,7 @@
 
 Self-hosted outbound telephone calling for AI agents: a SIMCom SIM7600G-H modem places a real mobile call, and the xAI Realtime voice API holds the conversation. See [docs/TELAIUS_CONCEPT.md](docs/TELAIUS_CONCEPT.md) for the vision, [docs/HARDWARE_NOTES.md](docs/HARDWARE_NOTES.md) for what is proven on real hardware, and [docs/VOLTE_NOTES.md](docs/VOLTE_NOTES.md) for IMS/VoLTE findings.
 
-**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work as CLI prototypes. M2 (MCP interface) is not started.
+**Status:** M0 (USB call + two-way audio) and M1 (live AI conversation) work through the `telaius` CLI, with SMS and Russian/Polish/English calls. M2 (agent integration): the `telaius-mcp` MCP server works end to end: an agent on the Pi delegated a live call with `result_schema` and got the filled `data`, and sent an SMS through it.
 
 ## Setup
 
@@ -13,7 +13,7 @@ raw libusb fallback (`brew install libusb`). `adb` is also needed to install the
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/pip install -e .        # or -e '.[mcp]' for the MCP server
 cp .env.example .env   # gitignored; fill in XAI_API_KEY, optionally TELAIUS_VOICE
 ```
 
@@ -110,7 +110,7 @@ include their modem storage (`SM:12` or `ME:4`). `sms list` does not alter messa
 which supplies the daily SMS policy counter. The limit counts submitted messages, not
 their encoded parts; one concatenated message consumes one daily allowance.
 
-Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
+Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (both sides, via ffmpeg; `call.wav` if ffmpeg is missing), a readable `transcript.txt` and `result.json`: outcome (`done` / `partial` / `failed` / `no_task` / `unknown`), summary for the owner, `data` and `unresolved` (see `result_schema` under MCP), end reason (`bot_goodbye`, `remote_hangup`, `max_duration`, `not_answered: …`, `cancelled`), network and the full transcript. The bot reports through its `end_call` tool. If the callee hangs up first, the bot is asked for the result afterwards (`report_result`).
 
 ### Following and ending a call while it runs
 
@@ -137,6 +137,63 @@ Prompts are config files in `prompts/`: `ru.toml` / `pl.toml` / `en.toml` hold e
 
 Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordings/`; both are gitignored. Only call numbers whose owners agreed to be called by an AI assistant.
 
+## MCP
+
+`telaius-mcp` is an MCP server over stdio for AI agents, built on the same core, policy and modem
+lock as the CLI. It needs the `mcp` extra (`pip install -e '.[mcp]'`, official MCP Python SDK 2.x).
+Add it to Claude Code:
+
+```bash
+claude mcp add telaius -- /path/to/telaius/.venv/bin/telaius-mcp
+```
+
+Other clients take the usual JSON config; `env` is optional and only needed when the settings
+are not in the repository's `.env` / `telaius.toml`:
+
+```json
+{
+  "mcpServers": {
+    "telaius": {
+      "command": "/path/to/telaius/.venv/bin/telaius-mcp",
+      "env": { "TELAIUS_ENV_FILE": "/path/to/telaius/.env", "TELAIUS_CONFIG": "/path/to/telaius.toml" }
+    }
+  }
+}
+```
+
+| tool | input | output |
+|---|---|---|
+| `get_modem_status` | — | the same as `telaius status --json` |
+| `make_call` | `phone_number`, `task`, `language` (`ru`/`pl`/`en`), optional `callee`, `context`, `constraints`, `formal`, `voice`, `max_seconds`, `result_schema` | `{call_id, status}` at once |
+| `get_call_status` | `call_id`, `wait_seconds` 0–60 (waits for the next state change) | `state`, `final_status`, `end_reason`, times, `error` |
+| `get_call_result` | `call_id`, `include_transcript` (default false) | `ready`, `outcome`, `summary`, `data`, `unresolved`, `end_reason`, `duration_s`, `network`, `recording` and `transcript_file` paths |
+| `end_call` | `call_id` | `{ok, state, was_running}`; a finished call is not an error |
+| `list_calls` | `limit` | `{calls: [...]}`, newest first, in brief |
+| `send_sms` | `phone_number`, `text` | `{ok, parts, message_refs}` |
+| `list_sms` | `unread_only`, `limit` | `{messages: [...]}`, long messages joined |
+
+Calls are asynchronous: `make_call` starts the background worker (as `telaius call --detach`
+does) and returns; closing the client does not end the call. A second `make_call` while a call
+runs is `modem_busy`. Failures are MCP tool errors whose text starts with a code —
+`modem_busy`, `modem_not_ready`, `policy_denied`, `call_not_found` or `invalid_input` — followed
+by a readable reason. Logs go to stderr; stdout carries only the protocol.
+
+`result_schema` is a JSON Schema with `"type": "object"` (at most 4 KB and 8 levels deep; anything
+else is `invalid_input`). It becomes the `data` parameter of the bot's `end_call` and
+`report_result` tools, with every top-level field also allowing `null`; both tools always carry
+`unresolved`, a list of what the call did not find out. The bot is told to fill `data` only with
+what it heard and to answer `null` plus an `unresolved` item rather than guess. Example:
+
+```json
+{ "type": "object",
+  "properties": { "time": { "type": "string", "description": "when he can talk tomorrow" },
+                  "topic": { "type": "string" } },
+  "required": ["time", "topic"] }
+```
+
+The same schema works from the CLI: `telaius call NUMBER --task "…" --result-schema schema.json`;
+`result.json` then has `data` and `unresolved` as well.
+
 ## Tests
 
 ```bash
@@ -146,3 +203,5 @@ Calls go to `calls/`, and test audio (`calltest`, `--no-call`) goes to `recordin
 No modem and no network needed: whole calls run against a fake modem (AT and PCM ports, so the real
 AT parsing and audio threads are exercised) and a fake xAI Realtime server — answered, unanswered,
 busy, hung up by the callee, cancelled from outside, and a modem that is already in use.
+The MCP server is tested through an in-process MCP client on the same fakes (with the `mcp`
+extra installed; without it those tests are skipped).

@@ -160,7 +160,7 @@ class CallSession:
             log.info("audio path: %s, PCM rate: %d Hz, output: %s", self.spec.audio, self.rate, self.dir)
             async with realtime.connect() as ws:
                 await realtime.configure(ws, self.rate, self.spec.instructions(), self.spec.voice,
-                                         LANG_HINT[self.spec.lang])
+                                         LANG_HINT[self.spec.lang], self.spec.tools())
                 try:
                     await self._converse(ws)
                 except (KeyboardInterrupt, asyncio.CancelledError):
@@ -294,7 +294,7 @@ class CallSession:
                     self.record["audio"] = "usb"
                     self.record["rate"] = self.rate
                     await realtime.configure(ws, self.rate, self.spec.instructions(), self.spec.voice,
-                                             LANG_HINT[self.spec.lang])
+                                             LANG_HINT[self.spec.lang], self.spec.tools())
                     await self._send("AT+CPCMREG=1")
                     log.info("relay unavailable; continuing the call through USB at %d Hz", self.rate)
         else:
@@ -392,6 +392,7 @@ class CallSession:
             "duration_s": round(time.monotonic() - self._t_answer, 1) if self._t_answer else 0,
             "end_reason": self.end_reason, "final_status": self.final_status,
             "outcome": result["outcome"], "summary": result["summary"],
+            "data": result.get("data"), "unresolved": result.get("unresolved", []),
             "transcript": self.ev.get("transcript", []),
         })
         await asyncio.to_thread(save_call, self.dir, self.rate, self._rx, self._tx, self.record)
