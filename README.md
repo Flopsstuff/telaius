@@ -77,7 +77,7 @@ Each call writes `calls/<date>_<time>_<callee>/` (gitignored) with `call.mp3` (b
 
 ### Following and ending a call while it runs
 
-The call directory exists from the moment the call starts and holds `spec.json` (what was asked) and `status.json`, rewritten on every state change:
+The call directory exists from the moment the call starts and holds `spec.json` (what was asked) and `status.json`, rewritten on every state change and every few seconds in between, so `elapsed` tells a running call from a stuck one:
 
 ```json
 { "call_id": "2026-11-15_12-30-00_masha", "state": "in_call", "final_status": null,

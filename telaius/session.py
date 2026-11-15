@@ -36,6 +36,7 @@ GREETING_WAIT = 2.0  # seconds of silence after answer before the bot greets fir
 ANSWER_WAIT = 60.0  # seconds to wait for the callee to pick up
 RELAY_AUDIO_WAIT = 3.0  # seconds to wait for the first audio frames from the relay
 POLL = 0.2  # in-call loop tick: how fast a cancel or a hangup is noticed
+STATUS_BEAT = 5.0  # how often status.json gets a fresh elapsed while nothing else changes
 
 # what status.json can say: `ended` and `failed` are terminal, final_status tells them apart
 STATES = ("created", "dialing", "ringing", "in_call", "reporting", "ended", "failed")
@@ -93,6 +94,11 @@ class CallSession:
                 reason = ""
             self.cancel(reason or "cancelled")
         return self._cancelled.is_set()
+
+    def _touch_status(self):
+        """Keep elapsed moving in status.json, so a watcher can tell a call from a stuck call."""
+        self._status["elapsed"] = round(time.monotonic() - self._t0, 2)
+        write_status(self.dir, self._status)
 
     def _set_state(self, state, **fields):
         self.state = state
@@ -308,8 +314,12 @@ class CallSession:
             log.info("no hello within %.0f s; the bot greets first", GREETING_WAIT)
             await ws.send(json.dumps({"type": "response.create"}))
         self.final_status = "completed"
+        beat = time.monotonic() + STATUS_BEAT
         while time.monotonic() - self._t_answer < spec.max_seconds:
             await asyncio.sleep(POLL)
+            if time.monotonic() >= beat:
+                self._touch_status()
+                beat += STATUS_BEAT
             if self._cancel_wanted():
                 log.info("ending the call on request (%s)", self._cancel_reason)
                 self.end_reason, self.final_status = self._cancel_reason, "cancelled"

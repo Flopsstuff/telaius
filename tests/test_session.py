@@ -92,6 +92,26 @@ class AnsweredCallTests(CallBase):
         self.assertEqual(record["end_reason"], "max_duration")
         self.assertEqual(record["final_status"], "completed")
 
+    async def test_elapsed_keeps_moving_while_the_call_runs(self):
+        patch_modem(self, FakeModem())
+        patch_xai(self, FakeXai(goodbye=False))
+        self.patch("telaius.session.STATUS_BEAT", 0.1)
+        directory = call_dir("Tester", NUMBER, self.root)
+        session = CallSession(self.spec(max_seconds=1.5), directory)
+        seen = []
+
+        async def watch():
+            while session.state != "in_call":
+                await asyncio.sleep(0.02)
+            for _ in range(3):
+                await asyncio.sleep(0.2)
+                seen.append(read_status(directory)["elapsed"])
+
+        await asyncio.gather(session.run(), watch())
+
+        self.assertEqual(seen, sorted(seen))
+        self.assertLess(seen[0], seen[-1])
+
     async def test_the_event_loop_runs_while_at_commands_block(self):
         patch_modem(self, FakeModem(FakeAtPort(answer_delay=0.8)))
         patch_xai(self, FakeXai())
